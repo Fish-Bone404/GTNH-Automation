@@ -1,0 +1,5 @@
+# Keep in-game component addresses, configuration, and backups local
+stock-config.dat
+stock-config.dat.bak
+*.tmp
+.DS_Store
