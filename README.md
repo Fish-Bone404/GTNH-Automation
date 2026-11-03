@@ -1,77 +1,116 @@
 # GTNH Automation
 
-OpenComputers AE2 stocking controller for GT New Horizons 2.9.
+This is my OpenComputers stocking system for GT New Horizons 2.9.
 
-This project discovers connected redstone components, lets you register physical Redstone I/O blocks by unique address and friendly name, and controls their six separate faces based on AE2 inventory quantities.
+It checks how many items and fluids I have in AE2 and turns machines on or off when I need more. I can also give my Redstone I/O blocks names so I know which one controls what.
 
-## Before starting
+## What I need
 
-The OpenComputers server must have OpenOS, a hard drive, a screen and keyboard, a working ME Controller or ME Interface component on your **main** AE2 network, and at least one external Redstone I/O block. For Server Racks, ensure the screen, adapter, and Redstone I/O are on the server's configured OpenComputers network connection.
+Before using it, I need:
 
-**Important:** The component list includes internal Redstone Cards as well as external I/O blocks. Use an OpenComputers Analyzer to match each physical block's address before registering it.
+- An OpenComputers server with OpenOS, a hard drive, a screen, and a keyboard.
+- An OpenComputers Adapter connected to my **main AE2 network**.
+- At least one Redstone I/O block.
+- OpenComputers cables connecting everything to the server.
 
-## Install inside OpenOS
+If I'm using a Server Rack, all those parts need to be on a network side the server can access.
 
-From the normal OpenOS shell, not the interactive Lua prompt:
+The computer also lists Redstone Cards that are inside it. I need to make sure I'm registering the actual Redstone I/O block, not one of those cards. I can use an OpenComputers Analyzer to check each block's address.
+
+## Getting the program
+
+In the OpenComputers terminal, I need to be at the normal command prompt, not inside `lua`.
+
+I can download the program with:
 
 ```sh
 wget https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
 ```
 
-To set up:
+Then I can open the setup menu:
 
 ```sh
 stock setup
 ```
 
-Select the AE2 component with access to your main item inventory. Then discover and register external Redstone I/O blocks, give them descriptive names, and assign item or fluid stocking rules to individual faces.
+In the menu, I choose the AE2 connection that can see my main storage, find my Redstone I/O blocks, and give them names like "Chemical Plant" or "Farms".
 
-Other commands:
+After that, I can pick an output side for each block and choose what item or fluid it should control.
+
+## Commands
+
+```sh
+stock setup
+```
+Opens the menu to add blocks and set up stocking.
 
 ```sh
 stock scan
+```
+Shows the redstone devices the server can see.
+
+```sh
 stock list
+```
+Shows all my saved stocking rules.
+
+```sh
 stock run
 ```
+Starts checking AE2 and controlling the machines.
 
-If the shell cannot locate `stock`, use `cd /home` first.
+If `stock` isn't found, I can type `cd /home` first.
 
-## Stocking logic
+## How stocking works
 
-For an item with lower limit 30,000 and upper limit 50,000:
+For example, I could set Sulfur Dust to:
 
-- Below 30,000, enable the assigned redstone output.
-- Between those values, maintain the previous state.
-- At 50,000 or above, disable it.
+- **Below 30,000:** Turn the farm on.
+- **Between 30,000 and 50,000:** Keep doing what it was already doing.
+- **50,000 or more:** Turn the farm off.
 
-A separate wireless transmitter can be attached to each Redstone I/O output and paired with receiver(s) on its frequency. Use separate outputs and frequencies for independently controlled machines.
+The program checks AE2 every 10 seconds.
 
-The program checks inventories every 10 seconds. It discovers newly connected redstone components during operation, but **does not activate or register them automatically**.
+I can connect a wireless transmitter to each Redstone I/O output and put a matching receiver at the machine. Machines I want to control separately need their own outputs and wireless frequencies.
 
-## Local configuration
+If I add another Redstone I/O block later, the program can detect it. I still need to name it and set up its outputs before it controls anything.
 
-Names, component addresses, thresholds and AE2 component selection are saved on the OpenComputers drive at:
+## Where my settings are saved
+
+My block names, addresses, and stocking limits are saved on the in-game hard drive:
 
 ```text
 /home/stock-config.dat
 ```
 
-A backup is kept at `/home/stock-config.dat.bak` when changes are saved. This configuration file does **not** belong in the public GitHub repository.
+The program also keeps a backup at:
 
-## Updating
+```text
+/home/stock-config.dat.bak
+```
 
-Stop the running controller with Ctrl+C and download the latest program:
+Those files stay on my Minecraft server. They're not uploaded to GitHub, so updating the program won't replace my setup.
+
+## Updating the program
+
+First, I stop the running program with **Ctrl+C**.
+
+Then I can download the newest version:
 
 ```sh
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
 ```
 
-Your saved configuration remains in place.
+My saved settings should still be there afterward.
 
-## Safety notes
+## Things to know
 
-This is an initial version and has not yet been tested on the user's actual GTNH 2.9 server. Test with a redstone lamp or otherwise disconnected output before controlling production. The setup menu's output test activates one selected face for one second.
+This is the first version, so I still need to test it in GTNH before trusting it to run my whole factory.
 
-The program initializes managed outputs OFF at startup. If an AE2 read fails or another runtime error occurs, it attempts to turn reachable managed outputs OFF. A disconnected, unloaded, or broken component may retain its last physical redstone state. Use physical fail-safe wiring for any machine that must reliably turn off.
+I'll test new outputs with a redstone lamp first. The setup menu has a test option that turns an output on for one second. I shouldn't use that test on a machine unless it's safe for the machine to turn on.
 
-The current item query uses display labels, so different variants with identical labels may be counted together. Fluid rules require a name present in your AE2 fluid inventory when registered. This version controls redstone but does not request AE2 autocrafting jobs. Do not enable unattended startup until the actual output behavior has been verified.
+When the program starts, it sets its managed outputs to OFF. If it runs into an error, it tries to turn them off again. If a Redstone I/O block disconnects or its chunk unloads, though, the program might not be able to turn it off. Anything that must shut down safely needs a separate backup way to stop.
+
+The program checks items by their displayed names, so items with the same name might get counted together. For fluids, I need to use a name the computer can see in AE2.
+
+Right now this program handles redstone stocking. It doesn't start AE2 autocrafting jobs yet. I'll test everything before setting it to start automatically when the server boots.
