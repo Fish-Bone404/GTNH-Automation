@@ -60,7 +60,7 @@ For example, I could set Sulfur Dust to:
 - **Between 30,000 and 50,000:** Keep doing what it was already doing.
 - **50,000 or more:** Turn the farm off.
 
-The program checks AE2 every 10 seconds **while `stock run` is running**. It does not automatically start when something gets low. After rebooting the OpenComputers server, I need to start `stock run` again unless I set up automatic startup.
+The program checks AE2 every 10 seconds **while `stock run` is running**. It does not automatically start when something gets low. The optional startup service below runs it automatically after OpenOS boots.
 
 I can connect a wireless transmitter to each Redstone I/O output and put a matching receiver at the machine. Machines I want to control separately need their own outputs and wireless frequencies.
 
@@ -93,3 +93,50 @@ wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stoc
 ```
 
 My saved settings should still be there afterward. Once the update is done, I can start it again with `stock run`.
+
+## Starting stocking automatically when OpenOS boots
+
+The `stocking.lua` service starts my stocking program in the background, so I can still use the computer.
+
+I first stop any manually running `stock run` and install the current files in OpenOS:
+
+```sh
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stocking.lua /etc/rc.d/stocking.lua
+```
+
+Then enable it at boot:
+
+```sh
+rc stocking enable
+```
+
+To test it immediately without rebooting:
+
+```sh
+rc stocking start
+```
+
+It starts after a short delay. To see the log or check the service status:
+
+```sh
+cat /home/stock-service.log
+rc stocking status
+```
+
+To pause stocking while changing the rules, stop the service first. This also asks all reachable configured redstone outputs to turn off:
+
+```sh
+rc stocking stop
+stock setup
+rc stocking start
+```
+
+To stop starting it automatically on future boots:
+
+```sh
+rc stocking stop
+rc stocking disable
+```
+
+The service waits a few seconds after boot and retries every 30 seconds if the program exits, such as when the AE2 network is temporarily unavailable. It still needs the OpenComputers server powered on, with its chunk and the relevant AE2/Redstone I/O chunks loaded. Don't run a separate manual `stock run` at the same time as this service.
