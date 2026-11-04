@@ -60,7 +60,7 @@ For example, I could set Sulfur Dust to:
 - **Between 30,000 and 50,000:** Keep doing what it was already doing.
 - **50,000 or more:** Turn the farm off.
 
-The program checks AE2 every 10 seconds **while `stock run` is running**. It does not automatically start when something gets low. The optional startup service below runs it automatically after OpenOS boots.
+The program checks AE2 every 15 seconds **while `stock run` is running**. It does not automatically start when something gets low. The optional startup service below runs it automatically after OpenOS boots.
 
 I can connect a wireless transmitter to each Redstone I/O output and put a matching receiver at the machine. Machines I want to control separately need their own outputs and wireless frequencies.
 
