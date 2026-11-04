@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.2: registration, visible output assignments, and rule editing.
+-- Version 0.3: handle rules left behind by replaced Redstone I/O blocks.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -246,14 +246,20 @@ local function addRule()
   print("Rule saved. It will be OFF until 'stock run' is started.")
 end
 
+local function redstoneOnline(address)
+  local ok, kind = pcall(component.type, address)
+  return ok and kind == "redstone"
+end
+
 local function showRules()
   print("AE2 source: " .. tostring(cfg.meAddress or "NOT SELECTED"))
   if #cfg.rules == 0 then print("No stocking rules configured.") end
   for i, rule in ipairs(cfg.rules) do
     local block = cfg.blocks[rule.address]
-    print(string.format("%d) %s / %s | %s: %s | ON below %d, OFF at %d",
-      i, block and block.name or "UNREGISTERED", rule.side,
-      rule.kind, rule.name, rule.low, rule.high))
+    print(string.format("%d) %s [%s] / %s | %s: %s | ON below %d, OFF at %d | %s",
+      i, block and block.name or "UNREGISTERED", rule.address:sub(1, 8),
+      rule.side, rule.kind, rule.name, rule.low, rule.high,
+      redstoneOnline(rule.address) and "ONLINE" or "MISSING"))
   end
 end
 
@@ -263,11 +269,77 @@ local function removeRule()
   local index = chooseIndex(#cfg.rules, "Rule number to remove:")
   if not index then return end
   local rule = cfg.rules[index]
-  local ok, rs = pcall(component.proxy, rule.address)
-  if ok then pcall(rs.setOutput, SIDE_BY_NAME[rule.side], 0) end
+  if not redstoneOnline(rule.address) then
+    print("Old I/O block is missing. Removing its saved rule.")
+  else
+    local shared = false
+    for i, other in ipairs(cfg.rules) do
+      if i ~= index and other.address == rule.address
+          and other.side == rule.side then
+        shared = true
+        break
+      end
+    end
+    if not shared then
+      local ok, err = pcall(function()
+        component.proxy(rule.address).setOutput(SIDE_BY_NAME[rule.side], 0)
+      end)
+      if not ok then
+        print("WARNING: Could not turn output OFF: " .. tostring(err))
+        if ask("Remove rule anyway? Type YES:") ~= "YES" then
+          print("Cancelled.")
+          return
+        end
+      end
+    end
+  end
   table.remove(cfg.rules, index)
   saveConfig()
   print("Rule removed.")
+end
+
+local function cleanMissingRules()
+  local missing = {}
+  local addresses = {}
+  for i, rule in ipairs(cfg.rules) do
+    if not redstoneOnline(rule.address) then
+      missing[#missing + 1] = i
+      addresses[rule.address] = true
+    end
+  end
+  if #missing == 0 then
+    print("No missing I/O rules found.")
+    return
+  end
+  print("Rules from missing I/O blocks:")
+  for _, i in ipairs(missing) do
+    local rule = cfg.rules[i]
+    local info = cfg.blocks[rule.address]
+    print(string.format("%d) %s [%s] / %s / %s", i,
+      info and info.name or "UNREGISTERED",
+      rule.address:sub(1, 8), rule.side, rule.name))
+  end
+  print("WARNING: Unloaded or disconnected blocks also look missing.")
+  print("These saved rules will be deleted, not the physical redstone signals.")
+  if ask("Delete the listed rules? Type REMOVE:") ~= "REMOVE" then
+    print("Cancelled.")
+    return
+  end
+  for i = #missing, 1, -1 do
+    table.remove(cfg.rules, missing[i])
+  end
+  for address in pairs(addresses) do
+    local stillUsed = false
+    for _, rule in ipairs(cfg.rules) do
+      if rule.address == address then
+        stillUsed = true
+        break
+      end
+    end
+    if not stillUsed then cfg.blocks[address] = nil end
+  end
+  saveConfig()
+  print("Removed " .. #missing .. " old rules.")
 end
 
 local function editRule()
@@ -338,11 +410,12 @@ local function setup()
     print("7) Remove a stocking rule")
     print("8) Exit")
     print("9) Edit stocking amounts")
+    print("10) Clean up rules for missing I/O blocks")
     local choice = ask("Choose:")
     local actions = {
       ["1"]=listRedstone, ["2"]=registerBlock, ["3"]=chooseME,
       ["4"]=addRule, ["5"]=showRules, ["6"]=testOutput,
-      ["7"]=removeRule, ["9"]=editRule
+      ["7"]=removeRule, ["9"]=editRule, ["10"]=cleanMissingRules
     }
     if choice == "8" then return end
     if actions[choice] then
@@ -424,7 +497,7 @@ elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
 elseif command == "run" then run()
 else
-  print("GTNH AE2 Stocking Controller v0.2")
+  print("GTNH AE2 Stocking Controller v0.3")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
