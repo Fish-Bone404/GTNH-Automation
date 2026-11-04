@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.1: local registration, discovery and independent outputs.
+-- Version 0.2: registration, visible output assignments, and rule editing.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -174,6 +174,27 @@ local function registeredOnline()
   return result
 end
 
+local function showOutputSides(address)
+  local used = {}
+  for _, rule in ipairs(cfg.rules) do
+    if rule.address == address then used[rule.side] = rule end
+  end
+
+  print("\n=== " .. cfg.blocks[address].name .. " Outputs ===")
+  local available = {}
+  for i, side in ipairs(SIDES) do
+    local rule = used[side.name]
+    if rule then
+      print(string.format("%d) %-6s IN USE: %s (%s)",
+        i, side.name, rule.name, rule.kind))
+    else
+      print(string.format("%d) %-6s AVAILABLE", i, side.name))
+      available[side.name] = true
+    end
+  end
+  return available
+end
+
 local function addRule()
   local found = registeredOnline()
   if #found == 0 then print("Register a Redstone I/O block first."); return end
@@ -183,14 +204,18 @@ local function addRule()
   local index = chooseIndex(#found, "Block number:")
   if not index then return end
   local address = found[index]
-  print("Available sides: bottom, top, north, south, west, east")
-  local face = ask("Output side:"):lower()
+  local available = showOutputSides(address)
+  if not next(available) then
+    print("Every side is already assigned. Choose another block.")
+    return
+  end
+  local face = ask("Choose available output (number or side):"):lower()
+  local selection = tonumber(face)
+  if selection and SIDES[selection] then face = SIDES[selection].name end
   if not SIDE_BY_NAME[face] then print("Unknown side."); return end
-  for _, rule in ipairs(cfg.rules) do
-    if rule.address == address and rule.side == face then
-      print("That side already controls a rule. Remove it first.")
-      return
-    end
+  if not available[face] then
+    print("That output is already in use. Choose an AVAILABLE side.")
+    return
   end
   local kind = ask("Type 'item' or 'fluid':"):lower()
   if kind ~= "item" and kind ~= "fluid" then print("Invalid type."); return end
@@ -245,6 +270,35 @@ local function removeRule()
   print("Rule removed.")
 end
 
+local function editRule()
+  showRules()
+  if #cfg.rules == 0 then return end
+  local index = chooseIndex(#cfg.rules, "Rule number to edit:")
+  if not index then return end
+  local rule = cfg.rules[index]
+  print("Editing " .. rule.name .. " (" .. rule.kind .. ")")
+  print("Current start below: " .. rule.low)
+  print("Current stop at: " .. rule.high)
+  local rawLow = ask("New start below (Enter keeps current):")
+  local rawHigh = ask("New stop at (Enter keeps current):")
+  local low = rawLow == "" and rule.low or tonumber(rawLow)
+  local high = rawHigh == "" and rule.high or tonumber(rawHigh)
+  if not low or not high or low < 0 or low ~= math.floor(low)
+      or high ~= math.floor(high) or high <= low then
+    print("Invalid limits. Use whole numbers, high greater than low.")
+    return
+  end
+  print(string.format("New limits for %s: ON below %d, OFF at %d",
+    rule.name, low, high))
+  if ask("Save changes? Type YES:") ~= "YES" then
+    print("Cancelled."); return
+  end
+  rule.low = low
+  rule.high = high
+  saveConfig()
+  print("Limits updated. Restart 'stock run' to apply them.")
+end
+
 local function testOutput()
   local found = registeredOnline()
   if #found == 0 then print("Register a Redstone I/O block first."); return end
@@ -283,11 +337,12 @@ local function setup()
     print("6) Test an output (1 second)")
     print("7) Remove a stocking rule")
     print("8) Exit")
+    print("9) Edit stocking amounts")
     local choice = ask("Choose:")
     local actions = {
       ["1"]=listRedstone, ["2"]=registerBlock, ["3"]=chooseME,
       ["4"]=addRule, ["5"]=showRules, ["6"]=testOutput,
-      ["7"]=removeRule
+      ["7"]=removeRule, ["9"]=editRule
     }
     if choice == "8" then return end
     if actions[choice] then
@@ -369,10 +424,11 @@ elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
 elseif command == "run" then run()
 else
-  print("GTNH AE2 Stocking Controller v0.1")
+  print("GTNH AE2 Stocking Controller v0.2")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
   print("stock run     - begin automatic AE2 monitoring")
+  print("Run again after reboot; automatic startup is not enabled.")
   print("Local settings: " .. CONFIG)
 end
