@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.6: use targeted AE2 item lookups; keep fluid queries unchanged.
+-- Version 0.7: use targeted AE2 lookups for both items and fluids.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -179,8 +179,45 @@ local function identifyItem(me, label)
   return key, newAmount
 end
 
--- Monitoring uses the fast, exact-item query. Fluids keep their shared list.
-local function readAmount(me, kind, name, fluidsCache, itemKey)
+-- Resolve a fluid label to its internal registry name once, outside the run loop.
+-- OpenComputers getFluidInNetwork accepts the registry name as a string.
+local function identifyFluid(me, label)
+  local entries = me.getFluidsInNetwork()
+  assert(type(entries) == "table", "Could not read fluids from AE2")
+  local matches = {}
+  for _, entry in ipairs(entries) do
+    if entry.label == label or entry.name == label then
+      matches[#matches+1] = entry
+    end
+  end
+  assert(#matches > 0, "No stored sample of " .. label .. ". Add some fluid to AE2.")
+  assert(#matches == 1,
+    "More than one fluid entry matches " .. label ..
+    ". Fast lookup needs a unique fluid; registration cancelled.")
+  local entry = matches[1]
+  assert(not entry.hasTag,
+    "Fluid " .. label .. " has NBT data. Fast stocking registration for tagged fluids is not supported yet.")
+  assert(type(entry.name) == "string" and entry.name ~= "",
+    "AE2 did not return an internal fluid name for " .. label)
+  local key = entry.name
+  local oldAmount = tonumber(entry.amount or entry.size)
+  assert(oldAmount, "Invalid fluid amount from old lookup for " .. label)
+  local result = me.getFluidInNetwork(key)
+  assert(type(result) == "table",
+    "Fast fluid lookup did not find " .. label .. ". Check your GTNH OpenComputers version.")
+  assert(result.name == key and result.label == entry.label,
+    "Fast fluid lookup returned a different fluid. No changes saved.")
+  local newAmount = tonumber(result.amount or result.size)
+  assert(newAmount, "Fast fluid lookup returned an invalid amount for " .. label)
+  assert(newAmount == oldAmount,
+    "Fluid quantity changed between lookups for " .. label .. " (" ..
+    tostring(oldAmount) .. " vs " .. tostring(newAmount) ..
+    "). Pause fluid transfers briefly and retry.")
+  return key, newAmount
+end
+
+-- Monitoring uses the fast, exact-item query. Fluids also use a targeted lookup.
+local function readAmount(me, kind, name, itemKey, fluidKey)
   if kind == "item" then
     assert(itemKey, "Item " .. name .. " needs its fast lookup ID. Run 'stock optimize'.")
     local entry = me.getItemInNetwork(itemKey)
@@ -193,18 +230,16 @@ local function readAmount(me, kind, name, fluidsCache, itemKey)
     assert(quantity, "Fast lookup returned invalid quantity for " .. name)
     return quantity, 1
   elseif kind == "fluid" then
-    local entries = fluidsCache or me.getFluidsInNetwork()
-    assert(type(entries) == "table", "AE2 fluid inventory read failed")
-    local total, matches = 0, 0
-    for _, entry in ipairs(entries) do
-      if entry.label == name or entry.name == name then
-        matches = matches + 1
-        local quantity = tonumber(entry.amount or entry.size)
-        assert(quantity, "Invalid fluid quantity for " .. name)
-        total = total + quantity
-      end
-    end
-    return total, matches
+    assert(type(fluidKey) == "string" and fluidKey ~= "",
+      "Fluid " .. name .. " needs its fast lookup ID. Run 'stock optimize'.")
+    local entry = me.getFluidInNetwork(fluidKey)
+    if entry == nil then return 0, 0 end
+    assert(type(entry) == "table" and entry.name == fluidKey
+      and (entry.label == name or entry.name == name),
+      "Fast lookup returned unexpected fluid for " .. name)
+    local quantity = tonumber(entry.amount or entry.size)
+    assert(quantity, "Fast lookup returned invalid quantity for " .. name)
+    return quantity, 1
   end
   error("Invalid kind " .. tostring(kind))
 end
@@ -222,31 +257,56 @@ local function testItem(name)
   print("Old label lookup and fast getItemInNetwork returned the same quantity.")
 end
 
-local function optimizeItems()
+-- Test a stored fluid without changing saved rules or Redstone I/O outputs.
+local function testFluid(name)
+  if name == "" then
+    print("Usage: stock testfluid Benzene")
+    return
+  end
+  local ok, key, amount = pcall(identifyFluid, getME(), name)
+  if not ok then print("TEST FAILED: " .. tostring(key)); return end
+  print("PASS: " .. name .. " = " .. tostring(amount))
+  print("Internal fluid name: " .. key)
+  print("Old and targeted fluid lookups returned the same amount.")
+end
+
+-- Resolve legacy rules once, then use only targeted lookups while running.
+-- Changes are written only if every pending rule validates successfully.
+local function optimizeRules()
   local pending = {}
   local me = getME()
   for i, rule in ipairs(cfg.rules) do
     if rule.kind == "item" and not rule.itemKey then
-      print("Identifying " .. rule.name .. " (rule " .. i .. ")...")
+      print("Identifying item " .. rule.name .. " (rule " .. i .. ")...")
       local ok, key, quantity = pcall(identifyItem, me, rule.name)
       if not ok then
         print("FAILED: " .. tostring(key))
-        print("No item rules changed. Fix this and run stock optimize again.")
+        print("No rules changed. Fix this and run stock optimize again.")
         return
       end
       print("  Verified " .. quantity .. " items.")
-      pending[#pending+1] = {index=i, key=key}
+      pending[#pending+1] = {index=i, field="itemKey", key=key}
+    elseif rule.kind == "fluid" and not rule.fluidKey then
+      print("Identifying fluid " .. rule.name .. " (rule " .. i .. ")...")
+      local ok, key, quantity = pcall(identifyFluid, me, rule.name)
+      if not ok then
+        print("FAILED: " .. tostring(key))
+        print("No rules changed. Fix this and run stock optimize again.")
+        return
+      end
+      print("  Verified " .. quantity .. " L.")
+      pending[#pending+1] = {index=i, field="fluidKey", key=key}
     end
   end
   if #pending == 0 then
-    print("All item rules already use fast lookups.")
+    print("All item and fluid rules already use fast lookups.")
     return
   end
   for _, change in ipairs(pending) do
-    cfg.rules[change.index].itemKey = change.key
+    cfg.rules[change.index][change.field] = change.key
   end
   saveConfig()
-  print("Saved fast lookup IDs for " .. #pending .. " item rules.")
+  print("Saved fast lookup IDs for " .. #pending .. " rules.")
 end
 
 local function registeredOnline()
@@ -314,16 +374,18 @@ local function addRule()
   end
   local me = getME()
   local itemKey
+  local fluidKey
   local quantity, matches
   if kind == "item" then
     local ok, key, amount = pcall(identifyItem, me, name)
     if not ok then print("Item registration error: " .. tostring(key)); return end
     itemKey = key
     quantity, matches = amount, 1
-  else
-    local ok, amount, count = pcall(readAmount, me, kind, name)
-    if not ok then print("AE2 query error: " .. tostring(amount)); return end
-    quantity, matches = amount, count
+  elseif kind == "fluid" then
+    local ok, key, amount = pcall(identifyFluid, me, name)
+    if not ok then print("Fluid registration error: " .. tostring(key)); return end
+    fluidKey = key
+    quantity, matches = amount, 1
   end
   if matches == 0 then
     print("No matching material currently found in AE2. Check the label.")
@@ -336,7 +398,7 @@ local function addRule()
   end
   cfg.rules[#cfg.rules+1] = {
     address=address, side=face, kind=kind, name=name,
-    low=low, high=high, itemKey=itemKey
+    low=low, high=high, itemKey=itemKey, fluidKey=fluidKey
   }
   saveConfig()
   print("Rule saved. It will be OFF until 'stock run' is started.")
@@ -540,6 +602,9 @@ local function run(quiet)
     if rule.kind == "item" then
       assert(rule.itemKey,
         "Item rule " .. rule.name .. " needs fast lookup registration. Run 'stock optimize'.")
+    elseif rule.kind == "fluid" then
+      assert(type(rule.fluidKey) == "string" and rule.fluidKey ~= "",
+        "Fluid rule " .. rule.name .. " needs fast lookup registration. Run 'stock optimize'.")
     end
     assert(cfg.blocks[rule.address], "Unknown block in rule: " .. rule.name)
     assert(component.type(rule.address) == "redstone",
@@ -552,16 +617,11 @@ local function run(quiet)
   local function loop()
     while true do
       local me = getME()
-      local fluids = nil
       for _, rule in ipairs(cfg.rules) do
         if component.type(rule.address) ~= "redstone" then
           error("Lost Redstone I/O block: " .. cfg.blocks[rule.address].name)
         end
-        if rule.kind == "fluid" and not fluids then
-          fluids = me.getFluidsInNetwork()
-          assert(type(fluids) == "table", "Fluid inventory read failed")
-        end
-        local quantity = readAmount(me, rule.kind, rule.name, fluids, rule.itemKey)
+        local quantity = readAmount(me, rule.kind, rule.name, rule.itemKey, rule.fluidKey)
         local key = rule.address .. ":" .. rule.side
         local enabled = state[key] or false
         if quantity < rule.low then enabled = true
@@ -598,20 +658,22 @@ local command = args[1] or "help"
 if command == "setup" then setup()
 elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
-elseif command == "optimize" then optimizeItems()
+elseif command == "optimize" then optimizeRules()
 elseif command == "testitem" then testItem(table.concat(args, " ", 2))
+elseif command == "testfluid" then testFluid(table.concat(args, " ", 2))
 elseif command == "run" then run(args[2] == "quiet")
 elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.6")
+  print("GTNH AE2 Stocking Controller v0.7")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
   print("stock run     - begin automatic AE2 monitoring")
   print("stock testitem <label> - compare old and new item lookup")
-  print("stock optimize - register fast IDs for existing item rules")
+  print("stock testfluid <label> - compare old and new fluid lookup")
+  print("stock optimize - register fast IDs for existing item/fluid rules")
   print("stock off     - turn managed outputs off")
   print("Use the optional stocking RC service for automatic startup.")
   print("Local settings: " .. CONFIG)
