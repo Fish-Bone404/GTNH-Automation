@@ -94,33 +94,43 @@ wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stoc
 
 My saved settings should still be there afterward. Once the update is done, I can start it again with `stock run`.
 
-## Faster item lookups in version 0.6
+## Fast item and fluid lookups in version 0.7
 
-I can test a specific item without changing any Redstone I/O output. First stop the automatic stocking service, then update stock.lua and run a test using an item already stored in AE2:
+My stocking program now uses exact item and fluid lookups during its normal 15-second checks. It no longer reads the whole fluid inventory every cycle.
+
+For the first upgrade, I stop the automatic stocking service and download the current program:
 
 ```sh
 rc stocking stop
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
-stock testitem Sulfur Dust
 ```
 
-A PASS result means the old display-name lookup and the new `getItemInNetwork` lookup returned the same amount at the time of the test. I can choose another exact item label if Sulfur Dust isn't in storage. This is a real in-game test, not something verified just by uploading the code.
+I can test an item or a fluid already stored in AE2 without changing Redstone I/O outputs:
 
-For item rules that I added before version 0.6, I run this once with the service stopped:
+```sh
+stock testitem Sulfur Dust
+stock testfluid Benzene
+```
+
+The test compares the previous inventory-list lookup against the new exact lookup. A PASS means they returned the same stored amount at the time of testing. If amounts are changing rapidly, the test can fail even if the new lookup works. I can pause transfers briefly and retry.
+
+Before running any older fluid or item rules with this version, I migrate them once:
 
 ```sh
 stock optimize
 ```
 
-This looks up and saves each old item rule's registry identity and damage value. It uses the older scan only during this one-time registration, not every 15 seconds. New item rules get identified and checked when I add them. If the item is absent, multiple variants share the same label, or the item contains NBT data, the script refuses to assign an ID rather than monitor the wrong item. Keep one sample in AE2 while registering.
+This identifies and saves the internal registry name for each fluid, or the item ID and damage for each item. It only saves if all pending rules pass validation. I need to keep a sample of each monitored material in AE2 during registration. If a fluid is temporarily empty, I add a sample and retry. Tagged variants and ambiguous item labels aren't automatically registered.
 
-After tests or migration, I restart background stocking with:
+Then I restart the service:
 
 ```sh
 rc stocking start
+rc stocking status
+cat /home/stock-service.log
 ```
 
-The fluid lookup has not changed, and the monitoring interval stays 15 seconds. I should not run `stock run` manually while the startup service is running.
+New rules are automatically identified when I add them. The saved thresholds, outputs, GregTech wireless setup, and 15-second interval do not change. There is no need to recreate my registered rules.
 
 ## Starting stocking automatically when OpenOS boots
 
