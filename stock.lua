@@ -1,8 +1,9 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.7: use targeted AE2 lookups for both items and fluids.
+-- Version 0.8: spread checks across 15 seconds and only write redstone on changes.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
+local computer = require("computer")
 local serialization = require("serialization")
 local filesystem = require("filesystem")
 local sides = require("sides")
@@ -610,31 +611,58 @@ local function run(quiet)
     assert(component.type(rule.address) == "redstone",
       "Disconnected redstone block: " .. cfg.blocks[rule.address].name)
   end
+
+  -- Command OFF first. The first check of every rule always writes its output.
   offAll()
   local state = {}
   local seen = {}
-  print("Stocking active, reading every " .. TICK_SECONDS .. " seconds. Ctrl+C stops.")
+  local checkSpacing = TICK_SECONDS / #cfg.rules
+  print(string.format(
+    "Stocking active: %d rules spread across %d seconds (%.3f seconds apart).",
+    #cfg.rules, TICK_SECONDS, checkSpacing))
+  print("Ctrl+C stops. Redstone is written on initial checks and state changes.")
+
   local function loop()
+    -- Monotonic clock avoids schedule drift from variable query duration.
+    local nextCheck = computer.uptime()
     while true do
+      local cycleStart = computer.uptime()
       local me = getME()
       for _, rule in ipairs(cfg.rules) do
+        -- Start a new lookup at its scheduled slot, not in one large burst.
+        local remaining = nextCheck - computer.uptime()
+        if remaining > 0 then os.sleep(remaining) end
+
         if component.type(rule.address) ~= "redstone" then
           error("Lost Redstone I/O block: " .. cfg.blocks[rule.address].name)
         end
+
         local quantity = readAmount(me, rule.kind, rule.name, rule.itemKey, rule.fluidKey)
         local key = rule.address .. ":" .. rule.side
-        local enabled = state[key] or false
+        local previous = state[key]
+        local enabled = previous or false
         if quantity < rule.low then enabled = true
         elseif quantity >= rule.high then enabled = false end
-        component.proxy(rule.address).setOutput(SIDE_BY_NAME[rule.side], enabled and 15 or 0)
-        local previous = state[key]
+
+        if previous == nil or previous ~= enabled then
+          -- First check or changed state: write the appropriate output.
+          component.proxy(rule.address).setOutput(SIDE_BY_NAME[rule.side], enabled and 15 or 0)
+        end
+
         if not quiet or previous == nil or previous ~= enabled then
           print(string.format("%s / %s: %d | %s",
             cfg.blocks[rule.address].name, rule.name, quantity,
             enabled and "ON" or "OFF"))
         end
         state[key] = enabled
+
+        -- Clamp a missed slot so a slow AE2 query doesn't cause catch-up bursts.
+        nextCheck = nextCheck + checkSpacing
+        local now = computer.uptime()
+        if nextCheck < now then nextCheck = now end
       end
+
+      -- Discover new I/O components once per full cycle, not per rule.
       for _, address in ipairs(activeRedstone()) do
         if not seen[address] then
           seen[address] = true
@@ -643,9 +671,16 @@ local function run(quiet)
           end
         end
       end
-      os.sleep(TICK_SECONDS)
+
+      local elapsed = computer.uptime() - cycleStart
+      if elapsed > TICK_SECONDS + 0.5 then
+        print(string.format("WARNING: %d-rule scan took %.2f seconds; exceeds %d-second target.",
+          #cfg.rules, elapsed, TICK_SECONDS))
+      end
+      -- No extra sleep here. nextCheck already spaces queries across each window.
     end
   end
+
   local ok, err = pcall(loop)
   offAll()
   print(ok and "Stocking stopped." or ("ERROR, stocking stopped: " .. tostring(err)))
@@ -666,7 +701,7 @@ elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.7")
+  print("GTNH AE2 Stocking Controller v0.8")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
