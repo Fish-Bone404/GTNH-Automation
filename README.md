@@ -94,6 +94,34 @@ wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stoc
 
 My saved settings should still be there afterward. Once the update is done, I can start it again with `stock run`.
 
+## Faster item lookups in version 0.6
+
+I can test a specific item without changing any Redstone I/O output. First stop the automatic stocking service, then update stock.lua and run a test using an item already stored in AE2:
+
+```sh
+rc stocking stop
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+stock testitem Sulfur Dust
+```
+
+A PASS result means the old display-name lookup and the new `getItemInNetwork` lookup returned the same amount at the time of the test. I can choose another exact item label if Sulfur Dust isn't in storage. This is a real in-game test, not something verified just by uploading the code.
+
+For item rules that I added before version 0.6, I run this once with the service stopped:
+
+```sh
+stock optimize
+```
+
+This looks up and saves each old item rule's registry identity and damage value. It uses the older scan only during this one-time registration, not every 15 seconds. New item rules get identified and checked when I add them. If the item is absent, multiple variants share the same label, or the item contains NBT data, the script refuses to assign an ID rather than monitor the wrong item. Keep one sample in AE2 while registering.
+
+After tests or migration, I restart background stocking with:
+
+```sh
+rc stocking start
+```
+
+The fluid lookup has not changed, and the monitoring interval stays 15 seconds. I should not run `stock run` manually while the startup service is running.
+
 ## Starting stocking automatically when OpenOS boots
 
 The `stocking.lua` service starts my stocking program in the background, so I can still use the computer.
