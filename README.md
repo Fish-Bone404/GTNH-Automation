@@ -6,23 +6,23 @@ It checks how many items and fluids are in AE2 and turns machines on or off when
 
 ## Getting the program
 
-In the OpenComputers terminal,   need to be at the normal command prompt, not inside `lua`.
+In the OpenComputers terminal, I need to be at the normal command prompt, not inside `lua`.
 
-  can download the program with:
+I can download the program with:
 
 ```sh
 wget https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
 ```
 
-Then   can open the setup menu:
+Then I can open the setup menu:
 
 ```sh
 stock setup
 ```
 
-In the menu,   choose the AE2 connection that can see my main storage, find my Redstone  /O blocks, and give them names like "Chemical Plant" or "Farms".
+In the menu, I choose the AE2 connection that can see my main storage, find my Redstone I/O blocks, and give them names like "Chemical Plant" or "Farms".
 
-After that,   can pick an output side for each block and choose what item or fluid it should control.
+After that, the menu shows which sides are already used and which ones are free. I can pick a free side and choose what item or fluid it controls.
 
 ## Commands
 
@@ -46,21 +46,23 @@ stock run
 ```
 Starts checking AE2 and controlling the machines.
 
-If `stock` isn't found,   can type `cd /home` first.
+If `stock` isn't found, I can type `cd /home` first.
+
+To change stocking amounts later, I use **9. Edit stocking amounts** in the setup menu. I don't have to delete the rule.
 
 ## How stocking works
 
-For example,   could set Sulfur Dust to:
+For example, I could set Sulfur Dust to:
 
 - **Below 30,000:** Turn the farm on.
 - **Between 30,000 and 50,000:** Keep doing what it was already doing.
 - **50,000 or more:** Turn the farm off.
 
-The program checks AE2 every 10 seconds.
+The program checks AE2 every 10 seconds **while `stock run` is running**. It does not automatically start when something gets low. After rebooting the OpenComputers server, I need to start `stock run` again unless I set up automatic startup.
 
-  can connect a wireless transmitter to each Redstone  /O output and put a matching receiver at the machine. Machines   want to control separately need their own outputs and wireless frequencies.
+I can connect a wireless transmitter to each Redstone I/O output and put a matching receiver at the machine. Machines I want to control separately need their own outputs and wireless frequencies.
 
-If   add another Redstone  /O block later, the program can detect it.   still need to name it and set up its outputs before it controls anything.
+If I add another Redstone I/O block later, the program can detect it. I still need to name it and set up its outputs before it controls anything.
 
 ## Where my settings are saved
 
@@ -80,12 +82,12 @@ Those files stay on my Minecraft server. They're not uploaded to GitHub, so upda
 
 ## Updating the program
 
-First,   stop the running program with **Ctrl+C**.
+First, I stop the running program with **Ctrl+C**.
 
-Then   can download the newest version:
+Then I can download the newest version:
 
 ```sh
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
 ```
 
-My saved settings should still be there afterward.
+My saved settings should still be there afterward. Once the update is done, I can start it again with `stock run`.
