@@ -132,6 +132,25 @@ cat /home/stock-service.log
 
 New rules are automatically identified when I add them. The saved thresholds, outputs, GregTech wireless setup, and 15-second interval do not change. There is no need to recreate my registered rules.
 
+## Smoother monitoring in version 0.8
+
+Stocking rules now run evenly throughout each 15-second window instead of all at once. For example, with 100 rules, the program aims to start one lookup about every 0.15 seconds, and each rule is still checked about once every 15 seconds. It uses the computer's uptime clock to account for query time. If the queries take too long to fit into the 15-second window, it falls behind instead of launching a burst of catch-up queries, and prints a warning.
+
+Redstone I/O outputs are set once during the first check of each rule, and then only when the desired ON/OFF state changes. This removes redundant writes every 15 seconds. The program still turns managed online outputs OFF at startup and when it exits normally. If another source changes an I/O output while stocking is running, this version does not force it back until the stocking state changes or the program restarts.
+
+My normal AE2 item/fluid labels, saved lookup keys, stocking limits, and GregTech wireless connections are unchanged. I can still enter the human-readable material name in the setup menu when adding a new rule.
+
+To install this update, I stop stocking and download the current script:
+
+\`\`\`sh
+rc stocking stop
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+stock optimize
+rc stocking start
+\`\`\`
+
+To check behavior, I can open \`/home/stock-service.log\` or use \`stock run\` manually **only after stopping the background service**. The log includes an initial ON/OFF reading for each rule and later state changes. A normal quiet log does not show every individual check, even though each rule is being queried.
+
 ## Starting stocking automatically when OpenOS boots
 
 The `stocking.lua` service starts my stocking program in the background, so I can still use the computer.
