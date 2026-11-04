@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.4: add quiet run mode and safe output-off command for auto startup.
+-- Version 0.5: use 15-second stocking checks for fast production lines.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -8,7 +8,7 @@ local filesystem = require("filesystem")
 local sides = require("sides")
 
 local CONFIG = "/home/stock-config.dat"
-local TICK_SECONDS = 10
+local TICK_SECONDS = 15
 local SIDES = {
   {name="bottom", value=sides.bottom},
   {name="top", value=sides.top},
@@ -503,7 +503,7 @@ elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.4")
+  print("GTNH AE2 Stocking Controller v0.5")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
