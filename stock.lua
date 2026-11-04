@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.3: handle rules left behind by replaced Redstone I/O blocks.
+-- Version 0.4: add quiet run mode and safe output-off command for auto startup.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -437,7 +437,7 @@ local function offAll()
   end
 end
 
-local function run()
+local function run(quiet)
   assert(#cfg.rules > 0, "No rules configured. Run 'stock setup' first.")
   getME()
   for _, rule in ipairs(cfg.rules) do
@@ -467,10 +467,13 @@ local function run()
         if quantity < rule.low then enabled = true
         elseif quantity >= rule.high then enabled = false end
         component.proxy(rule.address).setOutput(SIDE_BY_NAME[rule.side], enabled and 15 or 0)
+        local previous = state[key]
+        if not quiet or previous == nil or previous ~= enabled then
+          print(string.format("%s / %s: %d | %s",
+            cfg.blocks[rule.address].name, rule.name, quantity,
+            enabled and "ON" or "OFF"))
+        end
         state[key] = enabled
-        print(string.format("%s / %s: %d | %s",
-          cfg.blocks[rule.address].name, rule.name, quantity,
-          enabled and "ON" or "OFF"))
       end
       for _, address in ipairs(activeRedstone()) do
         if not seen[address] then
@@ -495,13 +498,17 @@ local command = args[1] or "help"
 if command == "setup" then setup()
 elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
-elseif command == "run" then run()
+elseif command == "run" then run(args[2] == "quiet")
+elseif command == "off" then
+  offAll()
+  print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.3")
+  print("GTNH AE2 Stocking Controller v0.4")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
   print("stock run     - begin automatic AE2 monitoring")
-  print("Run again after reboot; automatic startup is not enabled.")
+  print("stock off     - turn managed outputs off")
+  print("Use the optional stocking RC service for automatic startup.")
   print("Local settings: " .. CONFIG)
 end
