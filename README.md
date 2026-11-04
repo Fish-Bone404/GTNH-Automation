@@ -50,6 +50,8 @@ If `stock` isn't found, I can type `cd /home` first.
 
 To change stocking amounts later, I use **9. Edit stocking amounts** in the setup menu. I don't have to delete the rule.
 
+If I break and replace a Redstone I/O block, the new block gets a different address. The old rules will show **MISSING** in the rule list. I can use **10. Clean up rules for missing I/O blocks** to remove those old rules without affecting the new ones. The menu asks me to type `REMOVE` first. I should only use this when I'm sure the old block is gone, since unloaded or disconnected blocks can also show as missing.
+
 ## How stocking works
 
 For example, I could set Sulfur Dust to:
