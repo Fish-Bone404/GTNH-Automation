@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.5: use 15-second stocking checks for fast production lines.
+-- Version 0.6: use targeted AE2 item lookups; keep fluid queries unchanged.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -142,27 +142,111 @@ local function chooseME()
   print("Saved main AE2 component: " .. cfg.meAddress)
 end
 
-local function readAmount(me, kind, name, fluidsCache)
-  local entries
-  if kind == "item" then
-    entries = me.getItemsInNetwork({label=name})
-  elseif kind == "fluid" then
-    entries = fluidsCache or me.getFluidsInNetwork()
-  else
-    error("Invalid kind " .. tostring(kind))
-  end
-  assert(type(entries) == "table", "AE2 inventory read failed")
-  local total, matches = 0, 0
+-- Called only during item registration/testing, NOT in the 15-second run loop.
+-- Display labels are not reliable identifiers for getItemInNetwork.
+local function identifyItem(me, label)
+  local entries = me.getItemsInNetwork({label=label})
+  assert(type(entries) == "table", "Could not resolve item label in AE2")
+  local matches = {}
   for _, entry in ipairs(entries) do
-    if entry.label == name or (kind == "fluid" and entry.name == name) then
-      matches = matches + 1
-      local quantity = tonumber(kind == "fluid" and (entry.amount or entry.size)
-        or (entry.size or entry.amount))
-      assert(quantity, "AE2 returned an invalid quantity for " .. name)
-      total = total + quantity
+    if entry.label == label then matches[#matches+1] = entry end
+  end
+  assert(#matches > 0, "No stored sample of " .. label .. " found. Add one to AE2.")
+  assert(#matches == 1,
+    "More than one item variant has the label " .. label ..
+    ". Fast lookup needs an exact variant; registration cancelled.")
+  local entry = matches[1]
+  assert(not entry.hasTag,
+    "Item " .. label .. " has NBT data. Fast stocking registration for tagged items is not supported yet.")
+  assert(type(entry.name) == "string" and entry.name ~= ""
+    and type(entry.damage) == "number",
+    "AE2 did not return the registry name and damage for " .. label)
+  local key = {name=entry.name, damage=entry.damage}
+  local oldAmount = tonumber(entry.size or entry.amount)
+  assert(oldAmount, "Invalid item quantity from old lookup for " .. label)
+  local result = me.getItemInNetwork(key)
+  assert(type(result) == "table",
+    "Fast lookup did not find " .. label .. ". Check your GTNH OpenComputers version.")
+  assert(result.name == key.name and tonumber(result.damage) == key.damage
+      and result.label == label,
+    "Fast lookup returned a different item. Keeping the old rule unchanged.")
+  local newAmount = tonumber(result.size or result.amount)
+  assert(newAmount, "Fast lookup returned an invalid quantity for " .. label)
+  assert(newAmount == oldAmount,
+    "Old and new quantities differ for " .. label .. " (" ..
+    tostring(oldAmount) .. " vs " .. tostring(newAmount) ..
+    "). Stop item transfers and test again.")
+  return key, newAmount
+end
+
+-- Monitoring uses the fast, exact-item query. Fluids keep their shared list.
+local function readAmount(me, kind, name, fluidsCache, itemKey)
+  if kind == "item" then
+    assert(itemKey, "Item " .. name .. " needs its fast lookup ID. Run 'stock optimize'.")
+    local entry = me.getItemInNetwork(itemKey)
+    if entry == nil then return 0, 0 end
+    assert(type(entry) == "table"
+      and entry.name == itemKey.name
+      and tonumber(entry.damage) == itemKey.damage
+      and entry.label == name, "Fast lookup returned unexpected item for " .. name)
+    local quantity = tonumber(entry.size or entry.amount)
+    assert(quantity, "Fast lookup returned invalid quantity for " .. name)
+    return quantity, 1
+  elseif kind == "fluid" then
+    local entries = fluidsCache or me.getFluidsInNetwork()
+    assert(type(entries) == "table", "AE2 fluid inventory read failed")
+    local total, matches = 0, 0
+    for _, entry in ipairs(entries) do
+      if entry.label == name or entry.name == name then
+        matches = matches + 1
+        local quantity = tonumber(entry.amount or entry.size)
+        assert(quantity, "Invalid fluid quantity for " .. name)
+        total = total + quantity
+      end
+    end
+    return total, matches
+  end
+  error("Invalid kind " .. tostring(kind))
+end
+
+-- Test a known item label without saving anything or changing redstone outputs.
+local function testItem(name)
+  if name == "" then
+    print("Usage: stock testitem Sulfur Dust")
+    return
+  end
+  local ok, key, amount = pcall(identifyItem, getME(), name)
+  if not ok then print("TEST FAILED: " .. tostring(key)); return end
+  print("PASS: " .. name .. " = " .. tostring(amount))
+  print("Registry name: " .. key.name .. " | damage: " .. tostring(key.damage))
+  print("Old label lookup and fast getItemInNetwork returned the same quantity.")
+end
+
+local function optimizeItems()
+  local pending = {}
+  local me = getME()
+  for i, rule in ipairs(cfg.rules) do
+    if rule.kind == "item" and not rule.itemKey then
+      print("Identifying " .. rule.name .. " (rule " .. i .. ")...")
+      local ok, key, quantity = pcall(identifyItem, me, rule.name)
+      if not ok then
+        print("FAILED: " .. tostring(key))
+        print("No item rules changed. Fix this and run stock optimize again.")
+        return
+      end
+      print("  Verified " .. quantity .. " items.")
+      pending[#pending+1] = {index=i, key=key}
     end
   end
-  return total, matches
+  if #pending == 0 then
+    print("All item rules already use fast lookups.")
+    return
+  end
+  for _, change in ipairs(pending) do
+    cfg.rules[change.index].itemKey = change.key
+  end
+  saveConfig()
+  print("Saved fast lookup IDs for " .. #pending .. " item rules.")
 end
 
 local function registeredOnline()
@@ -228,8 +312,19 @@ local function addRule()
     print("Limits invalid. Use whole numbers, with high greater than low.")
     return
   end
-  local ok, quantity, matches = pcall(readAmount, getME(), kind, name)
-  if not ok then print("AE2 query error: " .. tostring(quantity)); return end
+  local me = getME()
+  local itemKey
+  local quantity, matches
+  if kind == "item" then
+    local ok, key, amount = pcall(identifyItem, me, name)
+    if not ok then print("Item registration error: " .. tostring(key)); return end
+    itemKey = key
+    quantity, matches = amount, 1
+  else
+    local ok, amount, count = pcall(readAmount, me, kind, name)
+    if not ok then print("AE2 query error: " .. tostring(amount)); return end
+    quantity, matches = amount, count
+  end
   if matches == 0 then
     print("No matching material currently found in AE2. Check the label.")
     print("For safety, add one sample to AE2 before registering this rule.")
@@ -240,7 +335,8 @@ local function addRule()
     print("Cancelled."); return
   end
   cfg.rules[#cfg.rules+1] = {
-    address=address, side=face, kind=kind, name=name, low=low, high=high
+    address=address, side=face, kind=kind, name=name,
+    low=low, high=high, itemKey=itemKey
   }
   saveConfig()
   print("Rule saved. It will be OFF until 'stock run' is started.")
@@ -441,6 +537,10 @@ local function run(quiet)
   assert(#cfg.rules > 0, "No rules configured. Run 'stock setup' first.")
   getME()
   for _, rule in ipairs(cfg.rules) do
+    if rule.kind == "item" then
+      assert(rule.itemKey,
+        "Item rule " .. rule.name .. " needs fast lookup registration. Run 'stock optimize'.")
+    end
     assert(cfg.blocks[rule.address], "Unknown block in rule: " .. rule.name)
     assert(component.type(rule.address) == "redstone",
       "Disconnected redstone block: " .. cfg.blocks[rule.address].name)
@@ -461,7 +561,7 @@ local function run(quiet)
           fluids = me.getFluidsInNetwork()
           assert(type(fluids) == "table", "Fluid inventory read failed")
         end
-        local quantity = readAmount(me, rule.kind, rule.name, fluids)
+        local quantity = readAmount(me, rule.kind, rule.name, fluids, rule.itemKey)
         local key = rule.address .. ":" .. rule.side
         local enabled = state[key] or false
         if quantity < rule.low then enabled = true
@@ -498,16 +598,20 @@ local command = args[1] or "help"
 if command == "setup" then setup()
 elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
+elseif command == "optimize" then optimizeItems()
+elseif command == "testitem" then testItem(table.concat(args, " ", 2))
 elseif command == "run" then run(args[2] == "quiet")
 elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.5")
+  print("GTNH AE2 Stocking Controller v0.6")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
   print("stock run     - begin automatic AE2 monitoring")
+  print("stock testitem <label> - compare old and new item lookup")
+  print("stock optimize - register fast IDs for existing item rules")
   print("stock off     - turn managed outputs off")
   print("Use the optional stocking RC service for automatic startup.")
   print("Local settings: " .. CONFIG)
