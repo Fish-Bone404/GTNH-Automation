@@ -134,23 +134,48 @@ New rules are automatically identified when I add them. The saved thresholds, ou
 
 ## Smoother monitoring in version 0.8
 
-Stocking rules now run evenly throughout each 15-second window instead of all at once. For example, with 100 rules, the program aims to start one lookup about every 0.15 seconds, and each rule is still checked about once every 15 seconds. It uses the computer's uptime clock to account for query time. If the queries take too long to fit into the 15-second window, it falls behind instead of launching a burst of catch-up queries, and prints a warning.
+Stocking rules run evenly throughout each 15-second window instead of all at once. With 100 rules, the program aims to start one lookup about every 0.15 seconds. If queries take too long, it prints a warning instead of launching a burst of catch-up queries.
 
-Redstone I/O outputs are set once during the first check of each rule, and then only when the desired ON/OFF state changes. This removes redundant writes every 15 seconds. The program still turns managed online outputs OFF at startup and when it exits normally. If another source changes an I/O output while stocking is running, this version does not force it back until the stocking state changes or the program restarts.
+Redstone I/O outputs are set at the initial check and then only when the requested ON/OFF state changes. This removes unnecessary redstone writes. Stocking labels, saved keys, limits, and GregTech wireless connections are unchanged.
 
-My normal AE2 item/fluid labels, saved lookup keys, stocking limits, and GregTech wireless connections are unchanged. I can still enter the human-readable material name in the setup menu when adding a new rule.
+## Live current-state log in version 0.9
 
-To install this update, I stop stocking and download the current script:
+`/home/stock-service.log` is now a current-state list rather than a history of events. It shows every saved rule once with its latest measured quantity and ON/OFF state. The list is replaced after each completed sweep, even when the redstone state hasn't changed.
 
-\`\`\`sh
+Example:
+
+```text
+BenzeneChems / Benzene: 64493200 L | OFF
+BenzeneChems / Toluene: 16171000 L | OFF
+main gases / Hydrogen: 48759258 L | ON
+```
+
+These are example figures. Current values update roughly every 15 seconds, plus the time taken by AE2 queries. Rules are checked at different moments during the sweep, so the entries will not all have precisely the same measurement time.
+
+Startup and error messages are kept separately in `/home/stock-errors.log`. This keeps the live status list free of duplicate history entries and unrelated messages.
+
+Both scripts need updating for this change:
+
+```sh
 rc stocking stop
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
-stock optimize
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stocking.lua /etc/rc.d/stocking.lua
 rc stocking start
-\`\`\`
+```
 
-To check behavior, I can open \`/home/stock-service.log\` or use \`stock run\` manually **only after stopping the background service**. The log includes an initial ON/OFF reading for each rule and later state changes. A normal quiet log does not show every individual check, even though each rule is being queried.
+After the first complete scan, read the current status:
 
+```sh
+cat /home/stock-service.log
+```
+
+To inspect diagnostics instead:
+
+```sh
+cat /home/stock-errors.log
+```
+
+The live status file is cleared when the service starts or stops, so an old reading isn't confused with the latest monitoring data.
 ## Starting stocking automatically when OpenOS boots
 
 The `stocking.lua` service starts my stocking program in the background, so I can still use the computer.
