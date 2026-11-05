@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.8: spread checks across 15 seconds and only write redstone on changes.
+-- Version 0.9: keep a live one-row-per-rule status snapshot for the background service.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -9,6 +9,7 @@ local filesystem = require("filesystem")
 local sides = require("sides")
 
 local CONFIG = "/home/stock-config.dat"
+local STATUS_FILE = "/home/stock-service.log"
 local TICK_SECONDS = 15
 local SIDES = {
   {name="bottom", value=sides.bottom},
@@ -596,7 +597,33 @@ local function offAll()
   end
 end
 
-local function run(quiet)
+-- Rewrite one current-state snapshot after every completed scan.
+-- This file is a dashboard, not a history of events.
+local function writeStatusSnapshot(rows)
+  local lines = {}
+  for i, rule in ipairs(cfg.rules) do
+    local current = rows[i]
+    if current then
+      local block = cfg.blocks[rule.address]
+      lines[#lines+1] = string.format("%s / %s: %d %s | %s",
+        block and block.name or "UNREGISTERED", rule.name,
+        current.quantity, rule.kind == "fluid" and "L" or "items",
+        current.enabled and "ON" or "OFF")
+    end
+  end
+  -- Opening in write mode replaces the previous snapshot, so no duplicates
+  -- or outdated quantities remain after a completed scan.
+  local file, err = io.open(STATUS_FILE, "w")
+  if not file then return false, err end
+  local ok, writeErr = pcall(function()
+    file:write(table.concat(lines, "\n"), "\n")
+  end)
+  file:close()
+  if not ok then return false, writeErr end
+  return true
+end
+
+local function run(quiet, serviceMode)
   assert(#cfg.rules > 0, "No rules configured. Run 'stock setup' first.")
   getME()
   for _, rule in ipairs(cfg.rules) do
@@ -616,11 +643,14 @@ local function run(quiet)
   offAll()
   local state = {}
   local seen = {}
+  local latest = {}
   local checkSpacing = TICK_SECONDS / #cfg.rules
-  print(string.format(
-    "Stocking active: %d rules spread across %d seconds (%.3f seconds apart).",
-    #cfg.rules, TICK_SECONDS, checkSpacing))
-  print("Ctrl+C stops. Redstone is written on initial checks and state changes.")
+  if not serviceMode then
+    print(string.format(
+      "Stocking active: %d rules spread across %d seconds (%.3f seconds apart).",
+      #cfg.rules, TICK_SECONDS, checkSpacing))
+    print("Ctrl+C stops. Redstone is written on initial checks and state changes.")
+  end
 
   local function loop()
     -- Monotonic clock avoids schedule drift from variable query duration.
@@ -628,7 +658,7 @@ local function run(quiet)
     while true do
       local cycleStart = computer.uptime()
       local me = getME()
-      for _, rule in ipairs(cfg.rules) do
+      for index, rule in ipairs(cfg.rules) do
         -- Start a new lookup at its scheduled slot, not in one large burst.
         local remaining = nextCheck - computer.uptime()
         if remaining > 0 then os.sleep(remaining) end
@@ -655,6 +685,7 @@ local function run(quiet)
             enabled and "ON" or "OFF"))
         end
         state[key] = enabled
+        latest[index] = {quantity=quantity, enabled=enabled}
 
         -- Clamp a missed slot so a slow AE2 query doesn't cause catch-up bursts.
         nextCheck = nextCheck + checkSpacing
@@ -672,6 +703,15 @@ local function run(quiet)
         end
       end
 
+      -- Write only the latest value for each rule, after a complete sweep.
+      -- Older readings are replaced, not appended.
+      if serviceMode then
+        local snapshotOK, snapshotErr = writeStatusSnapshot(latest)
+        if not snapshotOK then
+          print("WARNING: Could not update live status: " .. tostring(snapshotErr))
+        end
+      end
+
       local elapsed = computer.uptime() - cycleStart
       if elapsed > TICK_SECONDS + 0.5 then
         print(string.format("WARNING: %d-rule scan took %.2f seconds; exceeds %d-second target.",
@@ -683,6 +723,10 @@ local function run(quiet)
 
   local ok, err = pcall(loop)
   offAll()
+  -- Never leave a stale ON/OFF dashboard after the monitor exits.
+  if serviceMode and filesystem.exists(STATUS_FILE) then
+    filesystem.remove(STATUS_FILE)
+  end
   print(ok and "Stocking stopped." or ("ERROR, stocking stopped: " .. tostring(err)))
   print("Managed connected outputs were commanded OFF.")
   print("Disconnected/unloaded devices cannot be guaranteed OFF.")
@@ -696,16 +740,17 @@ elseif command == "list" then showRules()
 elseif command == "optimize" then optimizeRules()
 elseif command == "testitem" then testItem(table.concat(args, " ", 2))
 elseif command == "testfluid" then testFluid(table.concat(args, " ", 2))
-elseif command == "run" then run(args[2] == "quiet")
+elseif command == "run" then run(args[2] == "quiet" or args[2] == "service", args[2] == "service")
 elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.8")
+  print("GTNH AE2 Stocking Controller v0.9")
   print("stock setup   - discover, name, register and test outputs")
   print("stock scan    - see detected Redstone I/O/cards")
   print("stock list    - view saved rules")
   print("stock run     - begin automatic AE2 monitoring")
+  print("stock run service - update current-state status file")
   print("stock testitem <label> - compare old and new item lookup")
   print("stock testfluid <label> - compare old and new fluid lookup")
   print("stock optimize - register fast IDs for existing item/fluid rules")
