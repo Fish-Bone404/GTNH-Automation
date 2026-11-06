@@ -1,6 +1,6 @@
 # GTNH Automation
 
-An OpenComputers AE2 stocking manager for GT New Horizons 2.9. It checks the quantities of registered items and fluids and controls Redstone I/O outputs with low and high stocking limits.
+An OpenComputers AE2 stocking manager for GT New Horizons 2.9. Current version: 1.1. It checks the quantities of registered items and fluids and controls Redstone I/O outputs with low and high stocking limits.
 
 ## Install
 
@@ -36,14 +36,14 @@ Enter `stock manager` or just `stock`. The old `stock setup` command also opens 
 
 **Option 3:** Add an item or fluid stocking rule. Select a registered I/O block and an available face. Enter the exact AE2 display name, then the minimum and maximum stocking quantities. The manager identifies and saves the item's registry ID or fluid's internal name automatically. Keep a sample of the material in AE2 during registration.
 
-**Option 4:** View, edit amounts, or remove rules. It also provides an option to optimize old rules. Rules referring to broken I/O blocks can be removed individually, so there is no longer a separate missing-I/O cleanup menu.
+**Option 4:** View, edit amounts, or remove rules. It also provides an option to optimize old rules. Rules referring to broken I/O blocks can be removed individually. For multiple old rules, use the standalone `stock cleanup` command described below. The cleanup option stays out of the main manager.
 
 **Option 5:** Pulse a Redstone I/O output for one second. Only do this when testing is safe.
 
 **Option 6:** Manage the single **background OpenOS stocking service**:
 
 - START enables startup after future computer or Minecraft server restarts and also starts the service now.
-- STOP stops the service now and disables automatic startup after future restarts.
+- STOP stops the service now and disables automatic startup after future restarts. Selecting START again re-enables automatic startup, so stocking resumes after subsequent server reboots.
 - STATUS shows whether the service is running.
 
 These actions run the OpenOS `rc stocking` service. They do not launch a second manual `stock run` instance. The `stock run` command is no longer a way to start manual stocking. The service's internal `stock run service` command is retained for its operation.
@@ -51,6 +51,20 @@ These actions run the OpenOS `rc stocking` service. They do not launch a second 
 **Option 7:** Read the live stocking status file or the separate diagnostic log.
 
 Stop automatic stocking through option 6 before changing or testing outputs. After you save changes, return to option 6 and start stocking again. New and edited rules are loaded when the background service starts.
+
+## Cleaning up broken Redstone I/O blocks
+
+If I replace a broken or disconnected Redstone I/O block, I can remove its old rules without adding another option to the main manager. First stop stocking through option 6, then enter:
+
+```sh
+stock cleanup
+```
+
+The program lists rules associated with missing I/O blocks and asks for `REMOVE` to confirm. It deletes only those rules and their unused device registrations. Rules from connected blocks, including their saved item and fluid identities and stocking amounts, are kept.
+
+**Important:** An unloaded or temporarily disconnected I/O block also looks missing. I should only confirm cleanup once I am certain the old block is permanently gone. After installing and registering the replacement block, I can add its new rules and restart automatic stocking through option 6.
+
+The saved settings stay in `/home/stock-config.dat`; `/home/stock-config.dat.bak` stores the previous configuration.
 
 ## How stocking works
 
