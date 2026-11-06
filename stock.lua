@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 1.0: Stocking Manager with persistent background service controls.
+-- Version 1.1: add standalone missing-I/O cleanup without cluttering the manager.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -458,6 +458,62 @@ local function removeRule()
   print("Rule removed.")
 end
 
+-- Standalone maintenance command for broken/replaced I/O blocks.
+-- Keep this OUT of the regular manager; never touch connected rules.
+local function cleanupMissingRules()
+  print("Run this only after stopping automatic stocking.")
+  local missing = {}
+  local missingAddresses = {}
+  for i, rule in ipairs(cfg.rules) do
+    if not redstoneOnline(rule.address) then
+      missing[#missing+1] = i
+      missingAddresses[rule.address] = true
+    end
+  end
+  if #missing == 0 then
+    print("No rules assigned to missing Redstone I/O blocks.")
+    return
+  end
+  print("Rules assigned to missing Redstone I/O blocks:")
+  for _, i in ipairs(missing) do
+    local rule = cfg.rules[i]
+    local block = cfg.blocks[rule.address]
+    print(string.format("%d) %s [%s] / %s / %s: %s", i,
+      block and block.name or "UNREGISTERED",
+      rule.address:sub(1, 8), rule.side, rule.kind, rule.name))
+  end
+  print("WARNING: Unloaded or disconnected blocks also appear MISSING.")
+  print("This deletes ONLY the listed saved rules, not their physical outputs.")
+  print("Connected I/O blocks, their rules, item/fluid keys and limits are preserved.")
+  if ask("Delete these " .. #missing .. " missing-device rules? Type REMOVE:") ~= "REMOVE" then
+    print("Cancelled. No changes saved.")
+    return
+  end
+  -- Remove from end to avoid changing the saved indices while deleting.
+  for i = #missing, 1, -1 do
+    table.remove(cfg.rules, missing[i])
+  end
+  -- Forget device registrations only when no saved rule still uses them.
+  local countBlocks = 0
+  for address in pairs(missingAddresses) do
+    local stillUsed = false
+    for _, rule in ipairs(cfg.rules) do
+      if rule.address == address then
+        stillUsed = true
+        break
+      end
+    end
+    if not stillUsed and cfg.blocks[address] then
+      cfg.blocks[address] = nil
+      countBlocks = countBlocks + 1
+    end
+  end
+  saveConfig()
+  print(string.format("Removed %d missing-device rules and %d old device registrations.",
+    #missing, countBlocks))
+  print("Remaining saved rules: " .. #cfg.rules)
+end
+
 local function editRule()
   showRules()
   if #cfg.rules == 0 then return end
@@ -816,6 +872,7 @@ if command == "manager" or command == "setup" then manager()
 elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
 elseif command == "optimize" then optimizeRules()
+elseif command == "cleanup" then cleanupMissingRules()
 elseif command == "testitem" then testItem(table.concat(args, " ", 2))
 elseif command == "testfluid" then testFluid(table.concat(args, " ", 2))
 elseif command == "run" and args[2] == "service" then run(true, true)
@@ -825,12 +882,13 @@ elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH Stocking Manager v1.0")
+  print("GTNH Stocking Manager v1.1")
   print("stock manager  - open the main manager and automatic service controls")
   print("stock setup    - legacy alias for Stocking Manager")
   print("stock list     - view saved stocking rules")
   print("stock scan     - discover connected Redstone I/O devices")
   print("stock optimize - identify older item and fluid rule keys")
+  print("stock cleanup  - remove old rules assigned to missing I/O blocks")
   print("stock testitem Sulfur Dust - test item lookup")
   print("stock testfluid Benzene - test fluid lookup")
   print("stock off      - command all managed connected outputs OFF")
