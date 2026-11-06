@@ -1,224 +1,100 @@
 # GTNH Automation
 
-This is my OpenComputers stocking system for GT New Horizons 2.9.
+An OpenComputers AE2 stocking manager for GT New Horizons 2.9. It checks the quantities of registered items and fluids and controls Redstone I/O outputs with low and high stocking limits.
 
-It checks how many items and fluids are in AE2 and turns machines on or off when needed. It can also give Redstone I/O blocks names so you know which one controls what.
+## Install
 
-## Getting the program
-
-In the OpenComputers terminal, I need to be at the normal command prompt, not inside `lua`.
-
-I can download the program with:
+Use the normal OpenOS terminal, not the Lua interpreter.
 
 ```sh
-wget https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stocking.lua /etc/rc.d/stocking.lua
+stock manager
 ```
 
-Then I can open the setup menu:
+If `stock` is not found, enter `cd /home` first.
 
-```sh
-stock setup
+## Stocking Manager, version 1.0
+
+Enter `stock manager` or just `stock`. The old `stock setup` command also opens the manager.
+
+```text
+=== GTNH Stocking Manager ===
+1) Redstone I/O devices
+2) Select main AE2 network
+3) Add item/fluid stocking rule
+4) Manage stocking rules
+5) Test redstone output (1 second)
+6) Automatic stocking: START / STOP / STATUS
+7) View current stock and diagnostics
+8) Exit
 ```
 
-In the menu, I choose the AE2 connection that can see my main storage, find my Redstone I/O blocks, and give them names like "Chemical Plant" or "Farms".
+**Option 1:** Discover, register, or rename connected Redstone I/O blocks.
 
-After that, the menu shows which sides are already used and which ones are free. I can pick a free side and choose what item or fluid it controls.
+**Option 2:** Choose the OpenComputers connection to the main AE2 network.
 
-## Commands
+**Option 3:** Add an item or fluid stocking rule. Select a registered I/O block and an available face. Enter the exact AE2 display name, then the minimum and maximum stocking quantities. The manager identifies and saves the item's registry ID or fluid's internal name automatically. Keep a sample of the material in AE2 during registration.
 
-```sh
-stock setup
-```
-Opens the menu to add blocks and set up stocking.
+**Option 4:** View, edit amounts, or remove rules. It also provides an option to optimize old rules. Rules referring to broken I/O blocks can be removed individually, so there is no longer a separate missing-I/O cleanup menu.
 
-```sh
-stock scan
-```
-Shows the redstone devices the server can see.
+**Option 5:** Pulse a Redstone I/O output for one second. Only do this when testing is safe.
 
-```sh
-stock list
-```
-Shows all my saved stocking rules.
+**Option 6:** Manage the single **background OpenOS stocking service**:
 
-```sh
-stock run
-```
-Starts checking AE2 and controlling the machines.
+- START enables startup after future computer or Minecraft server restarts and also starts the service now.
+- STOP stops the service now and disables automatic startup after future restarts.
+- STATUS shows whether the service is running.
 
-If `stock` isn't found, I can type `cd /home` first.
+These actions run the OpenOS `rc stocking` service. They do not launch a second manual `stock run` instance. The `stock run` command is no longer a way to start manual stocking. The service's internal `stock run service` command is retained for its operation.
 
-To change stocking amounts later, I use **9. Edit stocking amounts** in the setup menu. I don't have to delete the rule.
+**Option 7:** Read the live stocking status file or the separate diagnostic log.
 
-If I break and replace a Redstone I/O block, the new block gets a different address. The old rules will show **MISSING** in the rule list. I can use **10. Clean up rules for missing I/O blocks** to remove those old rules without affecting the new ones. The menu asks me to type `REMOVE` first. I should only use this when I'm sure the old block is gone, since unloaded or disconnected blocks can also show as missing.
+Stop automatic stocking through option 6 before changing or testing outputs. After you save changes, return to option 6 and start stocking again. New and edited rules are loaded when the background service starts.
 
 ## How stocking works
 
-For example, I could set Sulfur Dust to:
+For example, a rule for Sulfur Dust could start production below 30,000 items and stop at 50,000. Between those amounts, the rule keeps its previous ON/OFF state.
 
-- **Below 30,000:** Turn the farm on.
-- **Between 30,000 and 50,000:** Keep doing what it was already doing.
-- **50,000 or more:** Turn the farm off.
+Regular monitoring uses targeted item and fluid lookups. The rules are spread across a 15-second window to avoid one large query burst. Redstone outputs are written on the first reading and when the required state changes, not on every inventory check.
 
-The program checks AE2 every 15 seconds **while `stock run` is running**. It does not automatically start when something gets low. The optional startup service below runs it automatically after OpenOS boots.
+Production continues only if the connected wireless control, pump, shutter, or other receiving hardware responds to the signal. The OpenComputers script does not directly move fluids or items.
 
-I can connect a wireless transmitter to each Redstone I/O output and put a matching receiver at the machine. Machines I want to control separately need their own outputs and wireless frequencies.
-
-If I add another Redstone I/O block later, the program can detect it. I still need to name it and set up its outputs before it controls anything.
-
-## Where my settings are saved
-
-My block names, addresses, and stocking limits are saved on the in-game hard drive:
-
-```text
-/home/stock-config.dat
-```
-
-The program also keeps a backup at:
-
-```text
-/home/stock-config.dat.bak
-```
-
-Those files stay on my Minecraft server. They're not uploaded to GitHub, so updating the program won't replace my setup.
-
-## Updating the program
-
-First, I stop the running program with **Ctrl+C**.
-
-Then I can download the newest version:
+## Useful commands
 
 ```sh
-wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
-```
-
-My saved settings should still be there afterward. Once the update is done, I can start it again with `stock run`.
-
-## Fast item and fluid lookups in version 0.7
-
-My stocking program now uses exact item and fluid lookups during its normal 15-second checks. It no longer reads the whole fluid inventory every cycle.
-
-For the first upgrade, I stop the automatic stocking service and download the current program:
-
-```sh
-rc stocking stop
-wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
-```
-
-I can test an item or a fluid already stored in AE2 without changing Redstone I/O outputs:
-
-```sh
+stock manager
+stock list
+stock scan
+stock optimize
 stock testitem Sulfur Dust
 stock testfluid Benzene
-```
-
-The test compares the previous inventory-list lookup against the new exact lookup. A PASS means they returned the same stored amount at the time of testing. If amounts are changing rapidly, the test can fail even if the new lookup works. I can pause transfers briefly and retry.
-
-Before running any older fluid or item rules with this version, I migrate them once:
-
-```sh
-stock optimize
-```
-
-This identifies and saves the internal registry name for each fluid, or the item ID and damage for each item. It only saves if all pending rules pass validation. I need to keep a sample of each monitored material in AE2 during registration. If a fluid is temporarily empty, I add a sample and retry. Tagged variants and ambiguous item labels aren't automatically registered.
-
-Then I restart the service:
-
-```sh
-rc stocking start
 rc stocking status
 cat /home/stock-service.log
-```
-
-New rules are automatically identified when I add them. The saved thresholds, outputs, GregTech wireless setup, and 15-second interval do not change. There is no need to recreate my registered rules.
-
-## Smoother monitoring in version 0.8
-
-Stocking rules run evenly throughout each 15-second window instead of all at once. With 100 rules, the program aims to start one lookup about every 0.15 seconds. If queries take too long, it prints a warning instead of launching a burst of catch-up queries.
-
-Redstone I/O outputs are set at the initial check and then only when the requested ON/OFF state changes. This removes unnecessary redstone writes. Stocking labels, saved keys, limits, and GregTech wireless connections are unchanged.
-
-## Live current-state log in version 0.9
-
-`/home/stock-service.log` is now a current-state list rather than a history of events. It shows every saved rule once with its latest measured quantity and ON/OFF state. The list is replaced after each completed sweep, even when the redstone state hasn't changed.
-
-Example:
-
-```text
-BenzeneChems / Benzene: 64493200 L | OFF
-BenzeneChems / Toluene: 16171000 L | OFF
-main gases / Hydrogen: 48759258 L | ON
-```
-
-These are example figures. Current values update roughly every 15 seconds, plus the time taken by AE2 queries. Rules are checked at different moments during the sweep, so the entries will not all have precisely the same measurement time.
-
-Startup and error messages are kept separately in `/home/stock-errors.log`. This keeps the live status list free of duplicate history entries and unrelated messages.
-
-Both scripts need updating for this change:
-
-```sh
-rc stocking stop
-wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
-wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stocking.lua /etc/rc.d/stocking.lua
-rc stocking start
-```
-
-After the first complete scan, read the current status:
-
-```sh
-cat /home/stock-service.log
-```
-
-To inspect diagnostics instead:
-
-```sh
 cat /home/stock-errors.log
 ```
 
-The live status file is cleared when the service starts or stops, so an old reading isn't confused with the latest monitoring data.
-## Starting stocking automatically when OpenOS boots
+The older `stock setup` command is still an alias for `stock manager`. For routine operation, use the manager to start and stop stocking rather than manually running `rc` commands.
 
-The `stocking.lua` service starts my stocking program in the background, so I can still use the computer.
+The status file is a snapshot with one row per stocking rule. Every completed scan replaces it with the newest amounts and ON/OFF states. It is cleared when the service stops. Startup messages and errors go to the separate diagnostics file.
 
-I first stop any manually running `stock run` and install the current files in OpenOS:
+## Updating
+
+Stop the service before replacing files. You can do that in the manager under option 6 or by entering `rc stocking stop` in an older version.
+
+To update the main program:
 
 ```sh
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stock.lua /home/stock.lua
+stock manager
+```
+
+If a release also changes `stocking.lua`, update that file too. OpenOS caches loaded services, so restarting OpenOS after updating the service file is the safest way to reload its code.
+
+```sh
 wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/stocking.lua /etc/rc.d/stocking.lua
 ```
 
-Then enable it at boot:
+Existing stocking rules and device registrations are saved locally in `/home/stock-config.dat`, with a prior backup in `/home/stock-config.dat.bak`. Neither file is uploaded to GitHub or overwritten by a program update.
 
-```sh
-rc stocking enable
-```
-
-To test it immediately without rebooting:
-
-```sh
-rc stocking start
-```
-
-It starts after a short delay. To see the log or check the service status:
-
-```sh
-cat /home/stock-service.log
-rc stocking status
-```
-
-To pause stocking while changing the rules, stop the service first. This also asks all reachable configured redstone outputs to turn off:
-
-```sh
-rc stocking stop
-stock setup
-rc stocking start
-```
-
-To stop starting it automatically on future boots:
-
-```sh
-rc stocking stop
-rc stocking disable
-```
-
-The service waits a few seconds after boot and retries every 30 seconds if the program exits, such as when the AE2 network is temporarily unavailable. It still needs the OpenComputers server powered on, with its chunk and the relevant AE2/Redstone I/O chunks loaded. Don't run a separate manual `stock run` at the same time as this service.
+The service still needs a powered-on OpenComputers computer and loaded chunks for AE2, the computer, and its Redstone I/O components.
