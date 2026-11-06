@@ -1,5 +1,5 @@
 -- GTNH OpenComputers AE2 Stocking Controller
--- Version 0.9: keep a live one-row-per-rule status snapshot for the background service.
+-- Version 1.0: Stocking Manager with persistent background service controls.
 -- Machine assignments live in /home/stock-config.dat, not in this program.
 
 local component = require("component")
@@ -91,7 +91,7 @@ local function activeME()
 end
 
 local function getME()
-  assert(cfg.meAddress, "First select the main AE2 network in setup.")
+  assert(cfg.meAddress, "First select the main AE2 network in Stocking Manager.")
   local kind = component.type(cfg.meAddress)
   assert(kind == "me_controller" or kind == "me_interface",
     "Registered AE2 component disconnected. Check rack/cables.")
@@ -403,7 +403,7 @@ local function addRule()
     low=low, high=high, itemKey=itemKey, fluidKey=fluidKey
   }
   saveConfig()
-  print("Rule saved. It will be OFF until 'stock run' is started.")
+  print("Rule saved. Start or restart automatic stocking in Stocking Manager to apply it.")
 end
 
 local function redstoneOnline(address)
@@ -458,50 +458,6 @@ local function removeRule()
   print("Rule removed.")
 end
 
-local function cleanMissingRules()
-  local missing = {}
-  local addresses = {}
-  for i, rule in ipairs(cfg.rules) do
-    if not redstoneOnline(rule.address) then
-      missing[#missing + 1] = i
-      addresses[rule.address] = true
-    end
-  end
-  if #missing == 0 then
-    print("No missing I/O rules found.")
-    return
-  end
-  print("Rules from missing I/O blocks:")
-  for _, i in ipairs(missing) do
-    local rule = cfg.rules[i]
-    local info = cfg.blocks[rule.address]
-    print(string.format("%d) %s [%s] / %s / %s", i,
-      info and info.name or "UNREGISTERED",
-      rule.address:sub(1, 8), rule.side, rule.name))
-  end
-  print("WARNING: Unloaded or disconnected blocks also look missing.")
-  print("These saved rules will be deleted, not the physical redstone signals.")
-  if ask("Delete the listed rules? Type REMOVE:") ~= "REMOVE" then
-    print("Cancelled.")
-    return
-  end
-  for i = #missing, 1, -1 do
-    table.remove(cfg.rules, missing[i])
-  end
-  for address in pairs(addresses) do
-    local stillUsed = false
-    for _, rule in ipairs(cfg.rules) do
-      if rule.address == address then
-        stillUsed = true
-        break
-      end
-    end
-    if not stillUsed then cfg.blocks[address] = nil end
-  end
-  saveConfig()
-  print("Removed " .. #missing .. " old rules.")
-end
-
 local function editRule()
   showRules()
   if #cfg.rules == 0 then return end
@@ -528,7 +484,7 @@ local function editRule()
   rule.low = low
   rule.high = high
   saveConfig()
-  print("Limits updated. Restart 'stock run' to apply them.")
+  print("Limits updated. Restart automatic stocking in Stocking Manager to apply them.")
 end
 
 local function testOutput()
@@ -558,32 +514,154 @@ local function testOutput()
   else print("Test complete. Output commanded OFF.") end
 end
 
-local function setup()
+-- The manager uses the same OpenOS rc service that starts on boot.
+-- Start both enables autostart and launches it now. Stop does both in reverse.
+local SERVICE_FILE = "/etc/rc.d/stocking.lua"
+local ERROR_FILE = "/home/stock-errors.log"
+
+local function rcCommand(action)
+  if not filesystem.exists(SERVICE_FILE) then
+    print("Stocking service not installed: " .. SERVICE_FILE)
+    print("Install stocking.lua before using automatic stocking.")
+    return false
+  end
+  local command = "rc stocking " .. action
+  local ok, result = pcall(os.execute, command)
+  if not ok or result == false or result == nil
+      or (type(result) == "number" and result ~= 0) then
+    print("Command failed: " .. command)
+    if not ok then print(tostring(result)) end
+    print("Check /home/stock-errors.log and the OpenOS terminal output.")
+    return false
+  end
+  return true
+end
+
+local function startAutomaticStocking()
+  if #cfg.rules == 0 then
+    print("Add a stocking rule first.")
+    return
+  end
+  print("Enabling automatic startup on future OpenOS boots...")
+  if not rcCommand("enable") then return end
+  print("Starting the background stocking service...")
+  if rcCommand("start") then
+    print("Automatic stocking enabled for future boots and started now.")
+    print("The live stock list appears after the first completed scan.")
+  else
+    print("Startup is enabled, but the service did not start successfully.")
+  end
+end
+
+local function stopAutomaticStocking()
+  print("Stopping the background stocking service...")
+  local stopped = rcCommand("stop")
+  print("Disabling startup on future OpenOS boots...")
+  local disabled = rcCommand("disable")
+  if stopped and disabled then
+    print("Automatic stocking stopped and disabled for future boots.")
+  else
+    print("Unable to confirm both actions. Check service status.")
+  end
+end
+
+local function showFile(path, description)
+  local file = io.open(path, "r")
+  if not file then
+    print(description .. " is not available yet: " .. path)
+    return
+  end
+  local contents = file:read("*a") or ""
+  file:close()
+  if contents == "" then print("No entries in " .. description .. ".")
+  else print(contents) end
+end
+
+local function redstoneManager()
   while true do
-    print("\n=== GTNH Stocking Setup ===")
-    print("1) Discover redstone devices")
-    print("2) Register/name a Redstone I/O")
-    print("3) Select main AE2 network")
-    print("4) Add item/fluid stocking rule")
-    print("5) View registered stocking rules")
-    print("6) Test an output (1 second)")
-    print("7) Remove a stocking rule")
+    print("\n=== Redstone I/O Devices ===")
+    print("1) Discover connected devices")
+    print("2) Register or rename a Redstone I/O")
+    print("3) Back")
+    local choice = ask("Choose:")
+    if choice == "3" then return
+    elseif choice == "1" then listRedstone()
+    elseif choice == "2" then registerBlock()
+    else print("Unknown option.") end
+  end
+end
+
+local function rulesManager()
+  while true do
+    print("\n=== Stocking Rules ===")
+    print("1) View saved rules")
+    print("2) Edit stocking amounts")
+    print("3) Remove a rule")
+    print("4) Optimize existing lookup keys")
+    print("5) Back")
+    local choice = ask("Choose:")
+    if choice == "5" then return
+    elseif choice == "1" then showRules()
+    elseif choice == "2" then editRule()
+    elseif choice == "3" then removeRule()
+    elseif choice == "4" then optimizeRules()
+    else print("Unknown option.") end
+  end
+end
+
+local function automaticManager()
+  while true do
+    print("\n=== Automatic Stocking ===")
+    print("1) START now and on future server restarts")
+    print("2) STOP now and disable future automatic startup")
+    print("3) Check service status")
+    print("4) Back")
+    local choice = ask("Choose:")
+    if choice == "4" then return
+    elseif choice == "1" then startAutomaticStocking()
+    elseif choice == "2" then stopAutomaticStocking()
+    elseif choice == "3" then rcCommand("status")
+    else print("Unknown option.") end
+  end
+end
+
+local function statusManager()
+  while true do
+    print("\n=== Stocking Status ===")
+    print("1) View latest quantities and ON/OFF states")
+    print("2) View errors and diagnostics")
+    print("3) Back")
+    local choice = ask("Choose:")
+    if choice == "3" then return
+    elseif choice == "1" then showFile(STATUS_FILE, "Live stocking status")
+    elseif choice == "2" then showFile(ERROR_FILE, "Stocking diagnostics")
+    else print("Unknown option.") end
+  end
+end
+
+local function manager()
+  while true do
+    print("\n=== GTNH Stocking Manager ===")
+    print("1) Redstone I/O devices")
+    print("2) Select main AE2 network")
+    print("3) Add item/fluid stocking rule")
+    print("4) Manage stocking rules")
+    print("5) Test redstone output (1 second)")
+    print("6) Automatic stocking: START / STOP / STATUS")
+    print("7) View current stock and diagnostics")
     print("8) Exit")
-    print("9) Edit stocking amounts")
-    print("10) Clean up rules for missing I/O blocks")
+    print("Stop automatic stocking before editing rules; start it again after.")
     local choice = ask("Choose:")
     local actions = {
-      ["1"]=listRedstone, ["2"]=registerBlock, ["3"]=chooseME,
-      ["4"]=addRule, ["5"]=showRules, ["6"]=testOutput,
-      ["7"]=removeRule, ["9"]=editRule, ["10"]=cleanMissingRules
+      ["1"]=redstoneManager, ["2"]=chooseME, ["3"]=addRule,
+      ["4"]=rulesManager, ["5"]=testOutput,
+      ["6"]=automaticManager, ["7"]=statusManager
     }
     if choice == "8" then return end
     if actions[choice] then
       local ok, err = pcall(actions[choice])
       if not ok then print("Error: " .. tostring(err)) end
-    else
-      print("Unknown option.")
-    end
+    else print("Unknown option.") end
   end
 end
 
@@ -733,28 +811,28 @@ local function run(quiet, serviceMode)
 end
 
 local args = {...}
-local command = args[1] or "help"
-if command == "setup" then setup()
+local command = args[1] or "manager"
+if command == "manager" or command == "setup" then manager()
 elseif command == "scan" then listRedstone()
 elseif command == "list" then showRules()
 elseif command == "optimize" then optimizeRules()
 elseif command == "testitem" then testItem(table.concat(args, " ", 2))
 elseif command == "testfluid" then testFluid(table.concat(args, " ", 2))
-elseif command == "run" then run(args[2] == "quiet" or args[2] == "service", args[2] == "service")
+elseif command == "run" and args[2] == "service" then run(true, true)
+elseif command == "run" then
+  print("Use 'stock manager' to start or stop the persistent background service.")
 elseif command == "off" then
   offAll()
   print("Managed online Redstone I/O outputs commanded OFF.")
 else
-  print("GTNH AE2 Stocking Controller v0.9")
-  print("stock setup   - discover, name, register and test outputs")
-  print("stock scan    - see detected Redstone I/O/cards")
-  print("stock list    - view saved rules")
-  print("stock run     - begin automatic AE2 monitoring")
-  print("stock run service - update current-state status file")
-  print("stock testitem <label> - compare old and new item lookup")
-  print("stock testfluid <label> - compare old and new fluid lookup")
-  print("stock optimize - register fast IDs for existing item/fluid rules")
-  print("stock off     - turn managed outputs off")
-  print("Use the optional stocking RC service for automatic startup.")
-  print("Local settings: " .. CONFIG)
+  print("GTNH Stocking Manager v1.0")
+  print("stock manager  - open the main manager and automatic service controls")
+  print("stock setup    - legacy alias for Stocking Manager")
+  print("stock list     - view saved stocking rules")
+  print("stock scan     - discover connected Redstone I/O devices")
+  print("stock optimize - identify older item and fluid rule keys")
+  print("stock testitem Sulfur Dust - test item lookup")
+  print("stock testfluid Benzene - test fluid lookup")
+  print("stock off      - command all managed connected outputs OFF")
+  print("Local configuration: " .. CONFIG)
 end
