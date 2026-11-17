@@ -1,0 +1,5 @@
+# Local runtime state and per-world wiring
+almanager-config.lua
+almanager-recipes.db
+almanager-recipes.db.tmp
+*.log
