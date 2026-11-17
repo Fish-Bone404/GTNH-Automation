@@ -5,7 +5,7 @@ local component=require("component")
 local cfg={
   interfaceAddress="", -- Set this if more than one Dual Interface is connected.
   catalogPath="/home/almanager-catalog.lua",
-  maxPatternSlots=36
+  maxPatternSlots=9
 }
 local ok,custom=pcall(dofile,"/home/almanager-config.lua")
 if ok and type(custom)=="table" then
@@ -25,10 +25,8 @@ local function interface()
     if #found>1 then return nil,"Multiple Dual Interfaces detected. Set interfaceAddress in configuration." end
     addr=found[1]
   end
-  local methods=component.methods(addr)
-  if not methods or not methods.getInterfacePattern then
-    return nil,"Selected component lacks getInterfacePattern"
-  end
+  -- component.methods may omit entries despite successful component.invoke.
+  -- The read-only scan below directly invokes getInterfacePattern.
   return addr
 end
 local function sortedKeys(t)
@@ -87,8 +85,8 @@ local function scan(verbose)
   local addr,err=interface()
   if not addr then print("ERROR: "..err);return end
   local slots=tonumber(cfg.maxPatternSlots) or 36
-  if slots<1 or slots>128 then slots=36 end
-  print("Assembly Line Manager v0.3 | READ ONLY")
+  if slots<1 or slots>128 then slots=9 end
+  print("Assembly Line Manager v0.3.1 | READ ONLY")
   print("Dual Interface: "..addr)
   local found=0
   for slot=1,slots do
@@ -140,7 +138,7 @@ elseif cmd=="catalog" then
     print("Recipe catalog not available at "..cfg.catalogPath)
   end
 elseif cmd=="status" then
-  print("Assembly Line Manager v0.3, direct Dual Interface mode, READ ONLY")
+  print("Assembly Line Manager v0.3.1, direct Dual Interface mode, READ ONLY")
   local addr,err=interface()
   print(addr and ("Connected: "..addr) or ("ERROR: "..err))
   print("Commands: probe, scan, plan, catalog, status")
