@@ -1,41 +1,21 @@
-# Architecture and verified API surface
+# GTNH 2.9 design and safeguards
 
-## Stage 1: Observe and learn safely
+Data Access Hatch or Data Bank: enables researched recipes for GregTech; OpenComputers does not need to read it.
 
-The manager is a dedicated program on the unused Creative OpenComputers computer near the Assembly Line. It **does not modify the separate Stocking Manager**.
+Main AE2: holds processing patterns and receives normal crafting requests. The target block ME Dual Interface is named Assembly Line Manager.
 
-The initial scope is to inspect patterns on a specified main-network ME block Interface and researched Data Sticks in a chest connected to a Transposer. It prints exact bus/hatch plans without placing any items or fluids.
+OpenComputers: uses an OC Adapter on the ME Interface Terminal. The terminal driver can list connected visible interfaces and their encoded patterns, including the inputs and output fields. Dual Interface direct driver does not offer getInterfacePattern.
 
-### Upstream callbacks
+Recipe catalog: version-matched ordered entries determine the bus and hatch position. Old Data Stick input parsing does not work on ordinary 2.9 research Data Sticks. Program denies unmatched or ambiguous recipes.
 
-GTNH OC includes the block ME Interface callback `getInterfacePattern(slot)`. Encoded patterns exposed through the OC ConverterPattern include `inputs`, `outputs`, and `isCraftable`.
+Future staging: items in a chest, fluids in 4 independently managed buffers; only one batch released to hardware at a time.
 
-OC's GregTech ConverterDataStick includes an implementation for `output`, `inputItems`, `inputFluids`, `eu`, and `time`. However, **GTNH 2.9's AssemblyLineUtils only writes `output`, `author`, `pages`, and `lastUpdate`** to newly generated Data Sticks. It does not write the numbered item and fluid ingredient tags the converter expects. Consequently, new sticks identify outputs but **cannot teach ordered item and fluid inputs**. The automated recipe matcher is blocked until a version-matched recipe catalog or equivalent trusted recipe source is added. See [Data Access Verification](DATA_ACCESS_VERIFICATION.md).
+Future router: connected Transposers send exact item quantities to individual buses and fluids to individual input hatches. OC cable only carries control signals.
 
-Do not assume a chest alone preserves item bus order. The manager must cross-check the ordering against the researched Data Stick.
+Future completion: Assembly Line outputs are imported back into main AE2. Persistent job state and controlled startup must prevent duplicate crafts or incorrect transfers after server restarts.
 
-## Staged architecture
+Current v0.2: only probe, interfaces, scan, plan and status; catalog.lua is intentionally empty and all physical transfers are disabled. The first in-game test must verify that ME Interface Terminal getInterfaces exposes the actual Dual Interface patterns in this 2.9 build.
 
-1. **Pattern catalog**: enumerate ME processing patterns from a specific Interface.
-2. **Research library**: enumerate researched Data Sticks from a dedicated chest.
-3. **Conservative matcher**: compare output and totals, decline ambiguous or unmapped recipes.
-4. **Recipe plan**: store ordered positions from research data, including repeated ingredients.
-5. **Job admission** (future): limit to one batch; verify staging is empty and reserve buffers.
-6. **Item router** (future): control Transposers and verify transfer amounts to specific buses.
-7. **Fluid router** (future): distinguish fluid identities and route exact amounts into specific hatches.
-8. **Completion** (future): import output to main AE2, verify expected item and clear lock.
-9. **Restart recovery** (future): inspect all in-flight state, never silently move ingredients after reboot.
-
-## Why one-at-a-time jobs?
-
-AE2 can send several batches of a processing pattern. A mixed chest may not reveal which request a batch belongs to, especially for recipes with identical aggregate ingredients. The implementation must gate request admission and verify the original pattern identity before it transfers anything.
-
-## Pattern registration limitations
-
-A pattern can be loaded at any point, but its decoded input ordering alone is not guaranteed to mirror Assembly Line input buses. A researched Data Stick is the authoritative ordered source. If multiple Data Sticks share the same total items and fluids or pattern ingredients use substitutions, the plan is flagged as ambiguous.
-
-At present the matcher is a deliberately strict proof of concept. Do **not** add physical routing until in-game identification tests pass and all ambiguities are handled.
-
-## Repository scope
-
-All files are under `Assembly-Line-Manager/`. The existing root Stocking Manager files are unchanged.
+Sources:
+https://github.com/GTNewHorizons/OpenComputers/blob/master/src/main/scala/li/cil/oc/integration/appeng/DriverPartInterfaceTerminal.scala
+https://github.com/GTNewHorizons/GT5-Unofficial/blob/5.09.54.154/src/main/java/gregtech/api/util/AssemblyLineUtils.java
