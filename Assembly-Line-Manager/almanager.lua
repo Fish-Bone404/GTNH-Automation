@@ -123,6 +123,12 @@ end
 local function decodeStick(stack, slot)
   if type(stack) ~= "table" or type(stack.output) ~= "string"
       or type(stack.inputItems) ~= "table" then return nil end
+  -- GTNH 2.9 AssemblyLineUtils stores output metadata but not ordered
+  -- item and fluid recipe entries on newly generated Data Sticks.
+  -- Refuse to infer bus order from an empty list.
+  if #stack.inputItems == 0 then
+    return nil, "2.9 Data Stick has no ordered inputs; an external recipe catalog is required"
+  end
   local items, e1 = asPairs(stack.inputItems, false)
   local fluids, e2 = asPairs(stack.inputFluids or {}, true)
   if not items then return nil, e1 end

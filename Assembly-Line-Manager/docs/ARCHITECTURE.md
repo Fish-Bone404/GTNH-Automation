@@ -10,7 +10,7 @@ The initial scope is to inspect patterns on a specified main-network ME block In
 
 GTNH OC includes the block ME Interface callback `getInterfacePattern(slot)`. Encoded patterns exposed through the OC ConverterPattern include `inputs`, `outputs`, and `isCraftable`.
 
-OC's GregTech ConverterDataStick can expose `output`, `inputItems`, `inputFluids`, `eu`, and `time` on Assembly Line research Data Sticks. The converter currently supplies localized names for ingredients. **A GTNH 2.9 in-game test is needed to verify actual Lua table structure, fluid pattern representation, and whether registry identity is recoverable.**
+OC's GregTech ConverterDataStick includes an implementation for `output`, `inputItems`, `inputFluids`, `eu`, and `time`. However, **GTNH 2.9's AssemblyLineUtils only writes `output`, `author`, `pages`, and `lastUpdate`** to newly generated Data Sticks. It does not write the numbered item and fluid ingredient tags the converter expects. Consequently, new sticks identify outputs but **cannot teach ordered item and fluid inputs**. The automated recipe matcher is blocked until a version-matched recipe catalog or equivalent trusted recipe source is added. See [Data Access Verification](DATA_ACCESS_VERIFICATION.md).
 
 Do not assume a chest alone preserves item bus order. The manager must cross-check the ordering against the researched Data Stick.
 

@@ -4,7 +4,7 @@ An early-stage OpenComputers and AE2 automation project for the GT New Horizons 
 
 **Goal:** Request crafts from the existing main AE2 Crafting Terminal while a dedicated Creative OpenComputers computer learns Assembly Line recipes and eventually routes exact quantities to the correct buses and hatches. Repeated ingredients should work without renaming.
 
-**Current state: research prototype, read-only. It does not move items or fluids and does not process crafting jobs yet.** Do not rely on this build for unattended crafting. The separate Stocking Manager in the parent repository is unaffected.
+**Important GTNH 2.9 finding:** New Assembly Line Data Sticks store the recipe output but not ordered ingredient lists. The existing read-only learner cannot derive input positions from these sticks alone. A version-matched recipe catalog or another reliable source is needed before automatic learning can work. See [Data Access Verification](docs/DATA_ACCESS_VERIFICATION.md).\n\n**Current state: research prototype, read-only. It does not move items or fluids and does not process crafting jobs yet.** Do not rely on this build for unattended crafting. The separate Stocking Manager in the parent repository is unaffected.
 
 ## Why learning needs more than a chest
 
@@ -12,7 +12,7 @@ An AE2 processing pattern exposes required input quantities but a staging chest 
 1. Encoded processing patterns read through an attached ME Interface.
 2. Researched Assembly Line Data Sticks read through an OpenComputers Transposer.
 
-A Data Stick supplies ordered Assembly Line item and fluid inputs. Learning is accepted only when a single researched Data Stick matches a pattern by output and normalized ingredient totals. Ambiguous or unreadable data is rejected and displayed instead of being guessed.
+The 2.9 researched Data Stick does **not** supply ordered Assembly Line item and fluid inputs; it identifies an output for the GT recipe lookup. The program cannot reliably learn bus order without a recipe catalog or another trusted source. Automatic matching is currently disabled for these incomplete sticks. Ambiguous or unreadable data is rejected and displayed instead of being guessed.
 
 **Important:** OpenComputers' GTNH Data Stick converter currently exposes localized display names rather than canonical registry IDs. This prototype checks them conservatively, and the exact 2.9 output formats still need an in-game probe. Full hands-free learning is a design goal, not yet proven on a running server.
 
@@ -42,7 +42,7 @@ If OpenOS cannot find `almanager`, run `cd /home` first and then `almanager.lua 
 
 1. Run `probe` to enumerate ME Interfaces, Transposers, and their relevant methods.
 2. Edit `/home/almanager-config.lua` to supply the correct ME Interface address and the Data Stick Transposer address and side.
-3. Run `scan`. The manager saves only unambiguous matching plans; it leaves the machine untouched.
+3. Run `scan` to observe the interface and Data Stick metadata. Current 2.9 Data Sticks cannot provide ordered input lists, so expect a useful warning instead of a saved routing plan.
 4. Run `recipes` and `plan` to inspect what it learned.
 
 The Data Stick chest must be visible to a Transposer. The configured ME Interface must be a **block Interface** with the patterns installed and accessible through the OC adapter. These requirements will be validated before physical routing is developed.
