@@ -757,11 +757,58 @@ local function deliverFluids(p,batches)
   end
   fluidJournal("completed",p.slot,#orders,p.output)
 end
+-- One-time interactive configuration for the two-fluid setup.
+-- No need to type a long Transposer UUID into the config file.
+local function fluidSetup()
+  local options={}
+  for _,address in ipairs(addresses("transposer")) do
+    if address~=cfg.transposerAddress then options[#options+1]=address end
+  end
+  if #options==0 then fail("Connect a separate fluid Transposer to the OC computer first.") end
+  say("Fluid Transposers available (item Transposer excluded):")
+  for i,address in ipairs(options) do say("  "..i..": "..address) end
+  local choice=1
+  if #options>1 then
+    io.write("Fluid Transposer number: ")
+    choice=tonumber(io.read())
+    if not choice or choice%1~=0 or not options[choice] then fail("Invalid Transposer number") end
+  end
+  local addr=options[choice]
+  local function askSide(message)
+    io.write(message)
+    local side=tonumber(io.read())
+    if not side or side%1~=0 or side<0 or side>5 then fail("Invalid side. Use a number 0 to 5") end
+    local n=invoke(addr,"getTankCount",side)
+    if n~=1 then fail("Side "..side.." does not have exactly one tank. Scan with fluid-probe") end
+    return side
+  end
+  local source1=askSide("First AE2 fluid STAGING tank side 0..5: ")
+  local source2=askSide("Second AE2 fluid STAGING tank side 0..5: ")
+  local hatch1=askSide("OUTPUT tank connected ONLY to Hatch 1 side 0..5: ")
+  local hatch2=askSide("OUTPUT tank connected ONLY to Hatch 2 side 0..5: ")
+  local seen={}
+  for _,side in ipairs({source1,source2,hatch1,hatch2}) do
+    if seen[side] then fail("Same side entered twice. Every tank must be on its own side.") end
+    seen[side]=true
+  end
+  say("Will save source sides "..source1..","..source2.." and output Hatch 1="..hatch1..", Hatch 2="..hatch2)
+  io.write("Type SAVE to write /home/al-fluid-config.lua: ")
+  if io.read()~="SAVE" then say("Canceled. Nothing changed.");return end
+  local f,err=io.open(FLUID_CFG,"w")
+  if not f then fail("Cannot save fluid config: "..tostring(err)) end
+  f:write("return {\n transferTimeout=20,\n stations={\n")
+  f:write("  {address="..string.format("%q",addr)..",sources={"..source1..","..source2.."},outputs={")
+  f:write("{hatch=1,side="..hatch1.."},{hatch=2,side="..hatch2.."}}}\n")
+  f:write(" }\n}\n")
+  f:close()
+  say("Fluid configuration saved. Run fluid-probe then fluid-check with a staged crafting request.")
+end
 local function fluidStatus()
   local state=readFile(FLUID_LOCK)
   say(state and ("Fluid lock: "..tostring(state.phase).." pattern "..tostring(state.slot).." hatch "..tostring(state.hatch)) or "Fluid lock: none")
-  local fc=loadFluidConfig()
-  say("Configured fluid stations: "..#fc.stations)
+  local ok,fc=pcall(loadFluidConfig)
+  if ok then say("Configured fluid stations: "..#fc.stations)
+  else say("Fluid map not yet configured. Use fluid-setup.") end
 end
 local function fluidCheck()
   local p,why,_,batches=ready(false)
@@ -858,6 +905,7 @@ local function main()
   elseif cmd=="approve" then doApprove()
   elseif cmd=="check" then check()
   elseif cmd=="fluid-probe" then fluidProbe()
+  elseif cmd=="fluid-setup" then fluidSetup()
   elseif cmd=="fluid-check" then fluidCheck()
   elseif cmd=="once" then once()
   elseif cmd=="run" or cmd=="auto" then run()
@@ -867,7 +915,7 @@ local function main()
     fluidStatus()
     local state=readFile(LOCK)
     say(state and ("SAFETY LOCK: "..tostring(state.phase).." pattern "..tostring(state.slot).." step "..tostring(state.step)) or "No safety lock")
-    say("Commands: probe, fluid-probe, patterns, approve SLOT, check, fluid-check, once, run, status, reset")
+    say("Commands: probe, fluid-probe, fluid-setup, patterns, approve SLOT, check, fluid-check, once, run, status, reset")
     say("Configuration: "..CFG)
   else say("Unknown command. Try status") end
 end
