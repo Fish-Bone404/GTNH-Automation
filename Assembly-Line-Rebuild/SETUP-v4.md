@@ -31,9 +31,11 @@ Run:
 
 Identify the FLUID Transposer address, source sides, and output sides. Then:
 
-    edit /home/al-fluid-config.lua
+    lua /home/al-assembly-manager.lua fluid-setup
 
-Fill in the REAL addresses and side numbers. Do not use the example values without matching them to the world.
+The interactive setup asks which sides touch the two AE2 staging tanks, then the two output tanks feeding Hatches 1 and 2. It automatically writes the new configuration, so you do not have to copy a full Transposer UUID manually.
+
+For future recipes needing 3 or 4 fluid hatches, edit /home/al-fluid-config.lua to add a second Transposer station and its outputs.
 
 Read-only validation, with at least one exact staged crafting request:
 
