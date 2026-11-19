@@ -1,8 +1,8 @@
 -- GTNH 2.9 Assembly Line: Single-Transposer Item Router v2.1
 -- ONE item Transposer touches AE2 staging chest and Ender IO feeder chest.
--- Does NOT route fluids, move Data Sticks, or verify Assembly Line bus occupancy.
+-- Coordinates staged fluids with item batches. Data Sticks still manual; destination bus occupancy cannot be read.
 -- One batch per operator reset: deliberately NOT unattended continuous crafting.
--- Commands: probe | patterns | approve SLOT | check | once | run | status | reset
+-- Commands: probe | fluid-probe | patterns | approve SLOT | check | fluid-check | once | run | status | reset
 
 local component = require("component")
 local event = require("event")
@@ -763,36 +763,56 @@ local function fluidStatus()
   local fc=loadFluidConfig()
   say("Configured fluid stations: "..#fc.stations)
 end
+local function fluidCheck()
+  local p,why,_,batches=ready(false)
+  if not p then say("Items not ready: "..tostring(why)); return end
+  local routes,err=fluidPlan(p,batches,false)
+  if not routes then say("FLUIDS NOT READY: "..tostring(err));return end
+  say("Both items and fluids match "..batches.." complete batch(es). READ ONLY.")
+end
 local function run()
   local _,_,_,addr=machineReading()
   say("Continuous item routing started. Machine Adapter "..addr)
   say("Fluids are external and must already route into the correct hatches.")
-  say("Processes multiple identical staged batches one machine cycle at a time.")
+  say("Processes multiple identical staged batches one machine cycle at a time, including exact fluid quantities.")
   say("Mixed recipes in the same staging chest are not supported.")
   local previous=""
   while true do
-    if readFile(LOCK) then
-      fail("Safety lock remains from an earlier craft. Inspect the machine and use reset before restarting.")
+    if readFile(LOCK) or readFile(FLUID_LOCK) then
+      fail("Safety lock remains from an earlier item/fluid transfer. Inspect the machine and use reset before restarting.")
     end
     if machineIdle() then
       local p,reason,h,batches=ready(true)
       if p then
-        say("AE2 staged "..batches.." complete batch(es) of "..p.output..", pattern "..p.slot)
-        if stableIdle() then
-          deliver(p,h,batches)
-          waitForCraft(p.slot)
-          if not feederEmpty(h.address,h.feeder,h.feederSize) then
-            fail("Distribution chest still contains items after crafting.")
+        local fluidRoutes,fluidReason=fluidPlan(p,batches,true)
+        if not fluidRoutes then
+          local msg="Waiting for staged fluids: "..tostring(fluidReason)
+          if msg~=previous then say(msg);previous=msg end
+        else
+          say("AE2 staged "..batches.." complete batch(es) of "..p.output..", pattern "..p.slot.."; fluids ready")
+          if stableIdle() then
+            -- Item positions first; only then transfer this cycle's fluids.
+            -- A crash or partial transfer leaves both safety journals in place.
+            deliver(p,h,batches)
+            deliverFluids(p,batches)
+            waitForCraft(p.slot)
+            if not feederEmpty(h.address,h.feeder,h.feederSize) then
+              fail("Distribution chest still contains items after crafting.")
+            end
+            if not stableIdle() then fail("Machine became active unexpectedly after craft.") end
+            local itemLock=readFile(LOCK)
+            local fluidLock=readFile(FLUID_LOCK)
+            if not itemLock or itemLock.phase~="completed" or itemLock.slot~=p.slot or
+              not fluidLock or fluidLock.phase~="completed" or fluidLock.slot~=p.slot then
+              fail("Item/fluid safety journals do not match the completed machine cycle.")
+            end
+            local ok1,err1=os.remove(LOCK)
+            if not ok1 then fail("Could not clear completed item journal: "..tostring(err1)) end
+            local ok2,err2=os.remove(FLUID_LOCK)
+            if not ok2 then fail("Could not clear completed fluid journal: "..tostring(err2)) end
+            say("Completed one item+fluid craft of "..p.output..". Waiting for next staged batch.")
+            previous=""
           end
-          if not stableIdle() then fail("Machine became active unexpectedly after craft.") end
-          local state=readFile(LOCK)
-          if not state or state.phase~="completed" or state.slot~=p.slot then
-            fail("Safety journal changed during crafting; halting.")
-          end
-          local ok,err=os.remove(LOCK)
-          if not ok then fail("Could not clear completed journal: "..tostring(err)) end
-          say("Completed machine cycle. Waiting for next AE2 request.")
-          previous=""
         end
       elseif previous~=reason then
         say("Waiting: "..reason)
@@ -806,31 +826,48 @@ local function run()
   end
 end
 local function reset()
-  local state=readFile(LOCK)
-  if not state then say("No safety lock exists");return end
-  say("LOCK: "..tostring(state.phase).." pattern="..tostring(state.slot).." step="..tostring(state.step))
-  say("ONLY reset after verifying the Assembly Line buses and feeder chest are empty and the prior craft has finished.")
-  io.write("Type RESET to release safety lock: ")
-  if io.read()~="RESET" then say("Canceled");return end
+  local itemState=readFile(LOCK)
+  local fluidState=readFile(FLUID_LOCK)
+  if not itemState and not fluidState then say("No item or fluid safety lock exists.");return end
+  say("Item lock: "..(itemState and tostring(itemState.phase) or "none"))
+  say("Fluid lock: "..(fluidState and tostring(fluidState.phase) or "none"))
+  say("ONLY reset after checking the actual item buses, fluid hatches, source/output tanks, and completed AE2 output.")
+  if not machineIdle() then fail("Assembly Line still running. Cannot reset") end
   local a,from,to,n,m=checkConfig()
-  if not feederEmpty(a,to,m) then fail("Feeder chest still has items. Refusing reset") end
-  local ok,err=os.remove(LOCK)
-  if not ok then fail("Could not remove lock: "..tostring(err)) end
-  say("Lock cleared. You may dispatch the next batch.")
+  if not feederEmpty(a,to,m) then fail("Feeder still has items. Cannot reset") end
+  local _,_,_,outs=getFluidStationMap()
+  for _,o in ipairs(outs) do
+    local t=tank(o.tank.address,o.tank.side)
+    if t.fluid then fail("Fluid output tank for Hatch "..o.hatch.." is not empty. Cannot reset.") end
+  end
+  io.write("Type RESET to clear BOTH safety locks after physical inspection: ")
+  if io.read()~="RESET" then say("Canceled");return end
+  if itemState then
+    local ok,err=os.remove(LOCK)
+    if not ok then fail("Could not clear item safety lock: "..tostring(err)) end
+  end
+  if fluidState then
+    local ok,err=os.remove(FLUID_LOCK)
+    if not ok then fail("Could not clear fluid safety lock: "..tostring(err)) end
+  end
+  say("Safety locks cleared. Check staged batch quantities before restarting.")
 end
 local function main()
   if cmd=="probe" then probe()
   elseif cmd=="patterns" then for _,p in ipairs(patterns()) do printPattern(p) end
   elseif cmd=="approve" then doApprove()
   elseif cmd=="check" then check()
+  elseif cmd=="fluid-probe" then fluidProbe()
+  elseif cmd=="fluid-check" then fluidCheck()
   elseif cmd=="once" then once()
   elseif cmd=="run" or cmd=="auto" then run()
   elseif cmd=="reset" then reset()
   elseif cmd=="status" then
-    say("Single-Transposer item router v3.0. Multi-batch with GT machine Adapter; fluids external.")
+    say("Assembly Line Manager v4.0. Multi-batch items AND fluids, GT machine Adapter required.")
+    fluidStatus()
     local state=readFile(LOCK)
     say(state and ("SAFETY LOCK: "..tostring(state.phase).." pattern "..tostring(state.slot).." step "..tostring(state.step)) or "No safety lock")
-    say("Commands: probe, patterns, approve SLOT, check, once, run, status, reset")
+    say("Commands: probe, fluid-probe, patterns, approve SLOT, check, fluid-check, once, run, status, reset")
     say("Configuration: "..CFG)
   else say("Unknown command. Try status") end
 end
