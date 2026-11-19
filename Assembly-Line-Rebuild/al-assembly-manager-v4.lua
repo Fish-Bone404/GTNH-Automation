@@ -819,8 +819,8 @@ local function fluidCheck()
 end
 local function run()
   local _,_,_,addr=machineReading()
-  say("Continuous item routing started. Machine Adapter "..addr)
-  say("Fluids are external and must already route into the correct hatches.")
+  say("Continuous ITEM + FLUID routing started. Machine Adapter "..addr)
+  say("Fluid routing ENABLED: OpenComputers transfers exactly one pattern batch to numbered hatch tanks.")
   say("Processes multiple identical staged batches one machine cycle at a time, including exact fluid quantities.")
   say("Mixed recipes in the same staging chest are not supported.")
   local previous=""
