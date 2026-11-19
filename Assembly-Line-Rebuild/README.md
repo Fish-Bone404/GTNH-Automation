@@ -91,3 +91,50 @@ NOT verified in-game:
 - Back-to-back multi-request operation
 
 Any discrepancy should be diagnosed with probe and check before another transfer. Never auto-enable unattended multi-batch crafting from this version.
+
+
+## Stage 2: continuous item routing with machine completion interlock
+
+File: al-item-router-v2.lua
+Configuration example: al-item-config-v2.example.lua
+
+V2 removes the MOVE/START confirmation in \`run\` mode. It makes the item staging wait 0.6 seconds instead of 5 seconds and waits for the feeder to stay empty 0.2 seconds instead of 1 second. The actual hardware may still have transfer latency; the router checks what is there rather than assuming instant deliveries.
+
+**New required hardware**: one OpenComputers Adapter directly touching the **Assembly Line controller**, with OC cable back to the Creative Computer. This exposes the GregTech machine component \`gt_machine\`. The v2 software reads \`getWorkProgress()\` and \`getWorkMaxProgress()\` to verify the machine actually started and returned to idle before accepting the next recipe. Confirm that the detected gt_machine address belongs to the Assembly Line rather than another machine.
+
+This feature is safer than a fixed arbitrary wait, but only proves the machine ran, not that the finished item reached AE2. A power failure or a forced machine stop could also return the machine to idle. Verify the output import path and do not use with overlapping/multiplied requests until those cases are added to the manager.
+
+Use the updated configuration example or add these fields to your existing \`/home/al-item-config.lua\`:
+
+    machineAddress = "", -- the real controller component address if multiple gt_machine components exist
+    stagingStableSeconds = 0.6,
+    feederEmptySeconds = 0.2,
+    feederDrainTimeout = 15,
+    autoPollSeconds = 0.4,
+    machinePollSeconds = 0.1,
+    machineStartTimeout = 120,
+    machineFinishTimeout = 3600,
+    idleStableSeconds = 1.0
+
+Install:
+
+    wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/Assembly-Line-Rebuild/al-item-router-v2.lua /home/al-item-router-v2.lua
+    lua /home/al-item-router-v2.lua probe
+    lua /home/al-item-router-v2.lua patterns
+    lua /home/al-item-router-v2.lua status
+
+After verifying the controller's gt_machine methods and the conduit routing:
+
+    lua /home/al-item-router-v2.lua run
+
+Leave \`run\` active. It is a foreground OpenOS program and will continue handling each one-batch crafting request automatically without pressing MOVE or RESET. You will need to start it again if the computer restarts, unless you separately configure a startup service.
+
+The old \`once\` command is still available for a manual test. \`reset\` is reserved for recovery after a crash or unexpected failure. Do not reset an interrupted transfer without checking the actual inventories.
+
+### V2 limitations
+
+* Only one complete recipe's items may be in staging at a time. If AE2 sends 2× the ingredients or mixes simultaneous requests, the script refuses to route them.
+* The computer cannot tell whether the finished item entered AE2 with only the current hardware. Future versions should optionally use a second verification sensor or AE2 status.
+* If a recipe finishes before the controller's progress is observed, the script retains its safety lock and stops; it does not blindly send another batch.
+* A current pattern with 16 item inputs and four fluids is supported; patternSlots refers to installed patterns, not ingredients.
+* Fluid handling is still external. Direct tank-to-hatch routing must preserve each recipe's actual hatch order.
