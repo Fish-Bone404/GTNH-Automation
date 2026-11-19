@@ -232,7 +232,8 @@ local function exactMatch(p,rows,start,batches)
   if p.invalid or type(batches)~="number" or batches<1 or batches%1~=0 then return false end
   local want=needed(p,start or 1)
   for key,amount in pairs(needed(p,1)) do
-    want[key]=(want[key] or 0)+(batches-1)*amount
+    local left=(want[key] or 0)+(batches-1)*amount
+    if left>0 then want[key]=left else want[key]=nil end
   end
   local have={}
   for _,r in ipairs(rows) do
@@ -364,8 +365,8 @@ local function deliver(p,h,batches)
   end
   lockState("completed",p.slot,#p.items,p.output)
   say("One of "..batches.." staged batch(es) dispatched in order. NOT proof of bus placement.")
-  say("Safety lock remains until the Assembly Line finishes and you manually reset.")
-  say("Fluid distribution and machine-start control are NOT included.")
+  say("Safety journal remains until the Assembly Line cycle completes in run mode.")
+  say("Fluid delivery remains external; controller monitoring runs separately.")
 end
 local function probe()
   say("Hardware scan, READ ONLY")
