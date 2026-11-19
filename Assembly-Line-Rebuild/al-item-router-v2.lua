@@ -415,10 +415,17 @@ local function once()
   if io.read()~="MOVE" then say("Canceled");return end
   deliver(p,h)
 end
+local cachedAssemblyLine=nil
 local function findAssemblyLine()
-  -- Detect Assembly Line by its GT machine name, not by a UUID that can change.
+  -- Cache the identified controller; re-discover if its component address disappears.
+  if cachedAssemblyLine then
+    local liveName=invoke(cachedAssemblyLine,"getName")
+    if type(liveName)=="string" and liveName:lower()=="multimachine.assemblyline" then
+      return cachedAssemblyLine
+    end
+    cachedAssemblyLine=nil
+  end
   local matches={}
-  local old=cfg.machineAddress
   for _,address in ipairs(addresses("gt_machine")) do
     local machineName=invoke(address,"getName")
     if type(machineName)=="string" and machineName:lower()=="multimachine.assemblyline" then
@@ -428,12 +435,8 @@ local function findAssemblyLine()
   if #matches~=1 then
     fail("Found "..#matches.." connected Assembly Line controllers. Check the OC Adapter and cable, then run probe.")
   end
-  local address=matches[1]
-  if old and old~="" and old~=address then
-    -- Ignore a stale configured UUID only because the exact Assembly Line name matches.
-    -- No need to manually rewrite the saved configuration.
-  end
-  return address
+  cachedAssemblyLine=matches[1]
+  return cachedAssemblyLine
 end
 local function machineReading()
   local address=findAssemblyLine()
