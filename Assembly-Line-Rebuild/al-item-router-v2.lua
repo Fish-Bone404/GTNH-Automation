@@ -1,4 +1,4 @@
--- GTNH 2.9 Assembly Line: Single-Transposer Item Router v2.0
+-- GTNH 2.9 Assembly Line: Single-Transposer Item Router v2.1
 -- ONE item Transposer touches AE2 staging chest and Ender IO feeder chest.
 -- Does NOT route fluids, move Data Sticks, or verify Assembly Line bus occupancy.
 -- One batch per operator reset: deliberately NOT unattended continuous crafting.
@@ -360,9 +360,17 @@ local function probe()
   end
   say("Connected gt_machine components:")
   for _,m in ipairs(addresses("gt_machine")) do
-    local x=invoke(m,"getWorkProgress")
-    local y=invoke(m,"getWorkMaxProgress")
-    say("  "..m.." work="..tostring(x).." max="..tostring(y))
+    local progress=invoke(m,"getWorkProgress")
+    local max=invoke(m,"getWorkMaxProgress")
+    local active=invoke(m,"isMachineActive")
+    local machineName=invoke(m,"getName")
+    local coords=invoke(m,"getCoordinates")
+    local pos=""
+    if type(coords)=="table" then
+      pos=" pos="..table.concat(coords,",")
+    end
+    say("  "..m)
+    say("    name="..tostring(machineName).." active="..tostring(active).." progress="..tostring(progress).."/"..tostring(max)..pos)
   end
   say("Use these side numbers in "..CFG..". Probe moves NOTHING.")
 end
@@ -411,15 +419,18 @@ local function machineReading()
   local address=choose("gt_machine",cfg.machineAddress)
   local progress,e1=invoke(address,"getWorkProgress")
   local maximum,e2=invoke(address,"getWorkMaxProgress")
-  if type(progress)~="number" or type(maximum)~="number" then
-    fail("Cannot read Assembly Line progress through OC Adapter: "..tostring(e1 or e2))
+  local active,e3=invoke(address,"isMachineActive")
+  if type(progress)~="number" or type(maximum)~="number" or type(active)~="boolean" then
+    fail("Cannot read Assembly Line status through OC Adapter: "..tostring(e1 or e2 or e3))
   end
   if progress<0 or maximum<0 then fail("Machine reports invalid progress values") end
-  return progress,maximum,address
+  return progress,maximum,active,address
 end
 local function machineIdle()
-  local progress,maximum=machineReading()
-  return progress<=0 and maximum<=0
+  local progress,maximum,active=machineReading()
+  -- The machine can report a nonzero *maximum* while idle. Only
+  -- isMachineActive and actual current progress determine activity.
+  return not active and progress<=0
 end
 local function stableIdle()
   local t=computer.uptime()
@@ -436,8 +447,8 @@ local function waitForCraft(slot)
   local endDeadline=nil
   local idleAt=nil
   while true do
-    local progress,maximum=machineReading()
-    local busy=progress>0 or maximum>0
+    local progress,maximum,active=machineReading()
+    local busy=active or progress>0
     if busy then
       if not seen then
         seen=true
@@ -464,7 +475,7 @@ end
 -- No operator confirmation in run mode.
 -- Wait for one exact staged recipe, release its items, verify a machine cycle, repeat.
 local function run()
-  local _,_,addr=machineReading()
+  local _,_,_,addr=machineReading()
   say("Continuous item routing started. Machine Adapter "..addr)
   say("Fluids are external and must already route into the correct hatches.")
   say("One complete batch at a time; mixed or multiplied batches will NOT match.")
@@ -526,7 +537,7 @@ local function main()
   elseif cmd=="run" or cmd=="auto" then run()
   elseif cmd=="reset" then reset()
   elseif cmd=="status" then
-    say("Single-Transposer item router v2.0. Continuous mode requires GT machine Adapter; fluids external.")
+    say("Single-Transposer item router v2.1. Continuous mode requires GT machine Adapter; fluids external.")
     local state=readFile(LOCK)
     say(state and ("SAFETY LOCK: "..tostring(state.phase).." pattern "..tostring(state.slot).." step "..tostring(state.step)) or "No safety lock")
     say("Commands: probe, patterns, approve SLOT, check, once, run, status, reset")
