@@ -138,3 +138,22 @@ The old \`once\` command is still available for a manual test. \`reset\` is rese
 * If a recipe finishes before the controller's progress is observed, the script retains its safety lock and stops; it does not blindly send another batch.
 * A current pattern with 16 item inputs and four fluids is supported; patternSlots refers to installed patterns, not ingredients.
 * Fluid handling is still external. Direct tank-to-hatch routing must preserve each recipe's actual hatch order.
+
+## Stage 3: bulk same-recipe item staging
+
+File: `al-item-router-v3.lua`
+
+This version can recognize 2, 10, or more **complete identical recipe sets** already delivered into the staging chest and release them **one set per observed Assembly Line machine cycle**. For example, when 10 pump ingredient sets are staged together, it releases ingredients for pump 1, waits for the machine to run and return to idle, then checks for 9 remaining sets before continuing. The recipe's repeated inputs are still transferred as separate ordered positions.
+
+Install without overwriting v2:
+
+    wget -f https://raw.githubusercontent.com/Fish-Bone404/GTNH-Automation/main/Assembly-Line-Rebuild/al-item-router-v3.lua /home/al-item-router-v3.lua
+    lua /home/al-item-router-v3.lua check
+
+Only enable unattended `run` after testing in-world and confirming correct fluid routing.
+
+Important limitations: the manager cannot detect an AE2 job completion event or verify the output was imported into AE2. It observes that the actual Assembly Line started and returned to idle. It does not infer or support mixed recipes sharing the chest, and it cannot prove all the requested materials have finished arriving without extra signaling. It only recognizes exact whole-number multiples of ONE installed, approved processing pattern. If the incoming ingredients are partial, extra, or mixed, it waits or stops without routing. If AE2 adds ingredients during an active dispatch, the script stops with a safety journal.
+
+**Fluid warning:** Ender IO fluid outputs must be filtered per destination to prevent splitting fluid between wrong hatches. For current pump/motor patterns, route Molten Indalloy 140 only to Hatch 1 and Lubricant only to Hatch 2. Higher-tier generic Ender IO wiki information may not match GTNH 2.9, particularly fluid insertion priority. Use white-listed fluid filters, not priority assumptions.
+
+The v3 code is committed but has not been tested in Minecraft yet. Do not replace a working v2 setup until the fluid routing test succeeds.
