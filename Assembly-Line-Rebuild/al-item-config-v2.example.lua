@@ -5,7 +5,7 @@
 return {
   interfaceAddress = "0dd3d3f8-b915-42a9-be95-61dd1e95adf9",
   transposerAddress = "6f22fcbe-28f4-4f78-b3fa-ef92c81348ce",
-  machineAddress = "48773a0b-acf4-49c7-8cc1-ef336b58c039",
+  machineAddress = "48773a0b-acf4-49c7-9cc1-ef336b58c039",
 
   sourceSide = 1,
   feederSide = 2,
